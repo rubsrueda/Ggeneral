@@ -5,323 +5,34 @@ let panStartTimestamp = 0;
 let hasMovedEnoughForPan = false;
 const PAN_MOVE_THRESHOLD = 5; 
 
-function initializeNewGameBoardDOMAndData(selectedResourceLevel = 'min') {
-    console.log("%%%%% BOARDMANAGER.JS --- DEBUG ---> initializeNewGameBoardDOMAndData HA SIDO LLAMADA %%%%%");
-    // Resetear transformaciones para el paneo
-    currentBoardTranslateX = 0; // Asumiendo que esta es la global de domElements.js
-    currentBoardTranslateY = 0; // Asumiendo que esta es la global de domElements.js
-    if (gameBoard) { 
+// --- INICIALIZACIÓN PARA PARTIDAS DE ESCARAMUZA ---
+function initializeNewGameBoardDOMAndData(selectedResourceLevel = 'min', selectedBoardSize = 'small') {
+
+    console.log("boardManager.js: initializeNewGameBoardDOMAndData ha sido llamada.");
+
+    const boardDimensions = BOARD_SIZES[selectedBoardSize] || BOARD_SIZES['small'];
+    const B_ROWS = boardDimensions.rows;
+    const B_COLS = boardDimensions.cols;    
+
+    // Reseteo de variables de paneo globales (asumiendo que están en domElements.js o son globales)
+    if (typeof currentBoardTranslateX !== 'undefined') currentBoardTranslateX = 0;
+    if (typeof currentBoardTranslateY !== 'undefined') currentBoardTranslateY = 0;
+    if (gameBoard) {
         gameBoard.style.transform = `translate(0px, 0px)`;
     }
 
     if (!gameBoard) { console.error("CRITICAL: gameBoard element not found in DOM."); return; }
-    gameBoard.innerHTML = '';
-
-    // ----- INICIO DE CAMBIO DRÁSTICO PARA DEPURACIÓN -----
-    console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
-    console.log('!!! ESTOY AL INICIO DE initializeNewGameBoardDOMAndData !!!');
-    console.log('!!! VERSIÓN DEL CÓDIGO: XXX (Reemplaza XXX con un número o fecha) !!!');
-    console.log('!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!');
-    // alert('DEBUG: Dentro de initializeNewGameBoardDOMAndData - VERSIÓN XXX'); // Puedes usar alert si quieres algo muy obvio
-    // ----- FIN DE CAMBIO DRÁSTICO PARA DEPURACIÓN -----
-
+    gameBoard.innerHTML = ''; // Limpiar tablero existente
 
     // Usar constantes globales BOARD_ROWS y BOARD_COLS para escaramuza
-    board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
-    // ... el resto de tu función ...
-
-    // ... al final de la función, justo ANTES de la llave de cierre } ...
-    // MANTÉN los logs de depuración que te pedí antes alrededor de initializeBoardPanning
-    console.log('DEBUG: ANTES DE INTENTAR LLAMAR A initializeBoardPanning. Tipo de initializeBoardPanning:', typeof initializeBoardPanning);
-    
-    if (typeof initializeBoardPanning === 'function') {
-        try {
-            console.log('DEBUG: LLAMANDO A initializeBoardPanning DENTRO DE TRY...');
-            initializeBoardPanning();
-            console.log('DEBUG: LLAMADA A initializeBoardPanning COMPLETADA.');
-        } catch (error) {
-            console.error('DEBUG: ERROR AL LLAMAR O DENTRO DE initializeBoardPanning:', error);
-        }
-    } else {
-        console.error('DEBUG: initializeBoardPanning NO ES UNA FUNCIÓN O NO ESTÁ DEFINIDA EN ESTE PUNTO.');
-    }
-}
-
-
-
-function initializeBoardPanning() {
-     console.log("PANNING_INIT_CALLED");
-     
-     if (!gameBoard || !gameBoard.parentElement) {
-        // ...
-        return;
-    }
-
-    const viewport = gameBoard.parentElement;
-
-    // Estas variables deben ser locales a boardManager.js o accesibles de alguna manera
-    // Si lastTouchX_pan_bm y lastTouchY_pan_bm no están ya declaradas arriba en el script,
-    // decláralas aquí con let:
-    let lastTouchX_pan_bm = null; 
-    let lastTouchY_pan_bm = null;
-    let touchStartR = -1, touchStartC = -1; // Para detectar si el clic es en el mismo hex
-
-    function applyTransformAndLimits() {
-        console.log("******************************************************");
-        console.log("DEBUG APPLY LIMITS:");
-        console.log("gameBoard.offsetWidth (boardW):", gameBoard.offsetWidth);
-        console.log("gameBoard.offsetHeight (boardH):", gameBoard.offsetHeight);
-        console.log("viewport.clientWidth (viewportW):", viewport.clientWidth);
-        console.log("viewport.clientHeight (viewportH):", viewport.clientHeight);
-        console.log("******************************************************");
-
-        
-        const boardWidth = gameBoard.offsetWidth;
-        const boardHeight = gameBoard.offsetHeight;
-        const viewportWidth = viewport.clientWidth;
-        const viewportHeight = viewport.clientHeight;
-
-        console.log('[APPLY LIMITS] boardW:', boardWidth, 'boardH:', boardHeight, 'viewportW:', viewportWidth, 'viewportH:', viewportHeight);
-
-        let targetX = currentBoardTranslateX; // Global de domElements.js
-        let targetY = currentBoardTranslateY; // Global de domElements.js
-
-        if (boardWidth > viewportWidth) {
-            targetX = Math.max(targetX, viewportWidth - boardWidth);
-            targetX = Math.min(targetX, 0);
-        } else {
-            targetX = (viewportWidth - boardWidth) / 2;
-        }
-
-        if (boardHeight > viewportHeight) {
-            targetY = Math.max(targetY, viewportHeight - boardHeight);
-            targetY = Math.min(targetY, 0);
-        } else {
-            targetY = (viewportHeight - boardHeight) / 2;
-        }
-        
-        currentBoardTranslateX = targetX; // Global
-        currentBoardTranslateY = targetY; // Global
-        gameBoard.style.transform = `translate(${currentBoardTranslateX}px, ${currentBoardTranslateY}px)`;
-    }
-
-    // --- Panning con Ratón ---
-    gameBoard.addEventListener('mousedown', function(e) {
-        if (e.button !== 0 || placementMode.active) return;
-        
-        isPanning = false; // Global
-        hasMovedEnoughForPan = false; // Global o local a boardManager
-        panStartTimestamp = Date.now(); // Global o local a boardManager
-
-        boardInitialX = currentBoardTranslateX; // Global
-        boardInitialY = currentBoardTranslateY; // Global
-        panStartX = e.clientX; // Global
-        panStartY = e.clientY; // Global
-        
-        console.log('[PAN DEBUG] mousedown - Posibles inicio de paneo. Coords:', e.clientX, e.clientY);
-    });
-
-    document.addEventListener('mousemove', function(e) {
-        if (panStartX === 0 && panStartY === 0 && !isPanning) return;
-
-        if (!isPanning && !hasMovedEnoughForPan) {
-            const deltaX = Math.abs(e.clientX - panStartX);
-            const deltaY = Math.abs(e.clientY - panStartY);
-            if (deltaX > PAN_MOVE_THRESHOLD || deltaY > PAN_MOVE_THRESHOLD) {
-                hasMovedEnoughForPan = true;
-                isPanning = true; // Global
-                gameBoard.classList.add('grabbing');
-                console.log('[PAN DEBUG] mousemove - Paneo INICIADO (movimiento detectado)');
-            } else {
-                return;
-            }
-        }
-
-        if (!isPanning) return;
-
-        const dx = e.clientX - panStartX;
-        const dy = e.clientY - panStartY;
-        currentBoardTranslateX = boardInitialX + dx; // Global
-        currentBoardTranslateY = boardInitialY + dy; // Global
-        applyTransformAndLimits();
-        // console.log('[PAN DEBUG] mousemove - PANEANDO');
-    });
-
-    function stopPanning() {
-        let wasPanningState = isPanning; // Captura el estado de la variable global
-
-        if (isPanning) { // Usa la global
-            isPanning = false; // Modifica la global
-            gameBoard.classList.remove('grabbing');
-            console.log('[PAN DEBUG] Paneo DETENIDO');
-        }
-        hasMovedEnoughForPan = false; // Global o local a boardManager
-        panStartX = 0; // Global
-        panStartY = 0; // Global
-
-        return wasPanningState;
-    }
-
-    document.addEventListener('mouseup', function(e) {
-        if (e.button !== 0) return;
-        const wasPanningBeforeStop = stopPanning();
-        if (!wasPanningBeforeStop) {
-            console.log('[PAN DEBUG] mouseup - NO fue paneo, podría ser click en hex.');
-        }
-    });
-
-    document.addEventListener('mouseleave', function(e) {
-        // stopPanning(); // Considera si realmente quieres esto
-    });
-
-    // --- Panning Táctil ---
-    gameBoard.addEventListener('touchstart', function(e) {
-        console.log('[PAN DEBUG] touchstart - touches:', e.touches.length, 'placementMode:', placementMode.active);
-        if (placementMode.active || e.touches.length !== 1) {
-            if (e.touches.length !== 1 && isPanning) stopPanning(); // Detener si hay multitouch y estaba paneando
-            return;
-        }
-        
-        isPanning = false; // Global
-        hasMovedEnoughForPan = false; // Global o local a boardManager
-        panStartTimestamp = Date.now(); // Global o local a boardManager
-
-        const touch = e.touches[0];
-        boardInitialX = currentBoardTranslateX; // Global
-        boardInitialY = currentBoardTranslateY; // Global
-        panStartX = touch.clientX; // Global
-        panStartY = touch.clientY; // Global
-        lastTouchX_pan_bm = touch.clientX; // Local a boardManager
-        lastTouchY_pan_bm = touch.clientY; // Local a boardManager
-
-        const targetElement = e.target.closest('.hex');
-        if (targetElement) {
-            touchStartR = parseInt(targetElement.dataset.r);
-            touchStartC = parseInt(targetElement.dataset.c);
-        } else {
-            touchStartR = -1;
-            touchStartC = -1;
-        }
-        console.log(`[PAN DEBUG] touchstart - Posible paneo/tap. Coords: (${panStartX}, ${panStartY}), Hex: (${touchStartR},${touchStartC})`);
-    }, { passive: true });
-
-    gameBoard.addEventListener('touchmove', function(e) {
-        if (e.touches.length !== 1) return;
-
-        if (!isPanning && !hasMovedEnoughForPan) {
-            const deltaX = Math.abs(e.touches[0].clientX - panStartX); // panStartX es Global
-            const deltaY = Math.abs(e.touches[0].clientY - panStartY); // panStartY es Global
-
-            if (deltaX > PAN_MOVE_THRESHOLD || deltaY > PAN_MOVE_THRESHOLD) {
-                hasMovedEnoughForPan = true; // Global o local
-                isPanning = true; // Global
-                gameBoard.classList.add('grabbing');
-                console.log('[PAN DEBUG] touchmove - Paneo INICIADO (movimiento detectado)');
-                if (e.cancelable) e.preventDefault();
-            } else {
-                return;
-            }
-        }
-        
-        if (!isPanning) return; // Global
-        if (e.cancelable) e.preventDefault();
-
-        const touch = e.touches[0];
-        const dx = touch.clientX - lastTouchX_pan_bm; // lastTouch... es local
-        const dy = touch.clientY - lastTouchY_pan_bm; // lastTouch... es local
-        
-        currentBoardTranslateX += dx; // Global
-        currentBoardTranslateY += dy; // Global
-
-        applyTransformAndLimits();
-        
-        lastTouchX_pan_bm = touch.clientX; // local
-        lastTouchY_pan_bm = touch.clientY; // local
-    }, { passive: false });
-
-    gameBoard.addEventListener('touchend', function(e) {
-        const wasPanningBeforeStop = isPanning; // Global
-        
-        stopPanning();
-
-        if (wasPanningBeforeStop) {
-            console.log('[PAN DEBUG] touchend - FUE un paneo. Evitar onHexClick.');
-            if (typeof gameState !== 'undefined') { // Asegurar que gameState existe
-                gameState.justPanned = true; 
-                setTimeout(() => { if (typeof gameState !== 'undefined') gameState.justPanned = false; }, 50);
-            } else {
-                console.warn("[PAN DEBUG] gameState no definido, no se pudo setear justPanned.");
-            }
-        } else {
-            console.log('[PAN DEBUG] touchend - NO fue paneo, fue un tap.');
-            const targetElement = e.target.closest('.hex');
-            if (targetElement) {
-                const r = parseInt(targetElement.dataset.r);
-                const c = parseInt(targetElement.dataset.c);
-                if (r === touchStartR && c === touchStartC) {
-                     console.log(`[PAN DEBUG] touchend - Tap detectado en hex (${r},${c}). onHexClick debería ejecutarse.`);
-                }
-            }
-        }
-        
-        lastTouchX_pan_bm = null;
-        lastTouchY_pan_bm = null;
-        touchStartR = -1;
-        touchStartC = -1;
-    });
-
-    gameBoard.addEventListener('touchcancel', function(e) {
-        console.log('[PAN DEBUG] touchcancel');
-        stopPanning();
-        lastTouchX_pan_bm = null;
-        lastTouchY_pan_bm = null;
-        touchStartR = -1;
-        touchStartC = -1;
-        if (typeof gameState !== 'undefined') gameState.justPanned = false;
-    });
-
-    console.log("BoardManager: Panning listeners (con lógica tap/pan) inicializados.");
-    applyTransformAndLimits();
-}
-
-function createHexDOMElementWithListener(r, c) {
-    const hexEl = document.createElement('div');
-    hexEl.classList.add('hex');
-    hexEl.dataset.r = r;
-    hexEl.dataset.c = c;
-
-    // Asumimos que HEX_WIDTH y HEX_VERT_SPACING son constantes globales de constants.js
-    const xPos = c * HEX_WIDTH + (r % 2 !== 0 ? HEX_WIDTH / 2 : 0);
-    const yPos = r * HEX_VERT_SPACING;
-    hexEl.style.left = `${xPos}px`;
-    hexEl.style.top = `${yPos}px`;
-
-    hexEl.addEventListener('click', () => onHexClick(r, c)); // onHexClick definida en main.js
-    return hexEl;
-}
-
-// --- INICIALIZACIÓN PARA PARTIDAS DE ESCARAMUZA (EXISTENTE) ---
-function initializeNewGameBoardDOMAndData(selectedResourceLevel = 'min') {
-    currentBoardTranslateX = 0;
-    currentBoardTranslateY = 0;
-    if (gameBoard) { // Aplicar reseteo visual inmediato
-        gameBoard.style.transform = `translate(0px, 0px)`;
-    }
-
-    if (!gameBoard) { console.error("CRITICAL: gameBoard element not found in DOM."); return; }
-    gameBoard.innerHTML = '';
-
-    // Usar constantes globales BOARD_ROWS y BOARD_COLS para escaramuza
-    board = Array(BOARD_ROWS).fill(null).map(() => Array(BOARD_COLS).fill(null));
+    board = Array(B_ROWS).fill(null).map(() => Array(B_COLS).fill(null));
     gameState.cities = []; // Limpiar ciudades del estado global para una nueva partida
 
-    gameBoard.style.width = `${BOARD_COLS * HEX_WIDTH + HEX_WIDTH / 2}px`;
-    gameBoard.style.height = `${BOARD_ROWS * HEX_VERT_SPACING + HEX_HEIGHT * 0.25}px`;
+    gameBoard.style.width = `${B_COLS * HEX_WIDTH + HEX_WIDTH / 2}px`;
+    gameBoard.style.height = `${B_ROWS * HEX_VERT_SPACING + HEX_HEIGHT * 0.25}px`;
 
-    console.log(`[BOARD SIZE DEBUG] gameBoard.style.width SET TO: ${gameBoard.style.width}, gameBoard.style.height SET TO: ${gameBoard.style.height}`);
-
-    for (let r = 0; r < BOARD_ROWS; r++) {
-        for (let c = 0; c < BOARD_COLS; c++) {
+    for (let r = 0; r < B_ROWS; r++) {
+        for (let c = 0; c < B_COLS; c++) {
             const hexElement = createHexDOMElementWithListener(r, c);
             gameBoard.appendChild(hexElement);
             board[r][c] = {
@@ -332,49 +43,173 @@ function initializeNewGameBoardDOMAndData(selectedResourceLevel = 'min') {
         }
     }
 
-    // Marcar que NO es una batalla de campaña
     if (gameState) { // Asegurarse que gameState está definido
         gameState.isCampaignBattle = false;
         gameState.currentScenarioData = null;
         gameState.currentMapData = null;
     }
 
-
-    // Definir Ciudades Capitales (fijas para escaramuza)
     addCityToBoardData(1, 2, 1, "Capital P1 (Escaramuza)", true);
-    addCityToBoardData(BOARD_ROWS - 2, BOARD_COLS - 3, 2, "Capital P2 (Escaramuza)", true);
+    addCityToBoardData(B_ROWS - 2, B_COLS - 3, 2, "Capital P2 (Escaramuza)", true);
 
     generateRandomResourceNodes(selectedResourceLevel); // Para escaramuzas
 
     renderFullBoardVisualState();
     updateFogOfWar(); // Aplicar niebla de guerra inicial
-    initializeBoardPanning(); // <--- AÑADE ESTA LLAMADA AQUÍ
-
-// ----- INICIO DE CAMBIO PARA DEPURACIÓN -----
-    console.log('DEBUG: ANTES DE INTENTAR LLAMAR A initializeBoardPanning. Tipo de initializeBoardPanning:', typeof initializeBoardPanning);
-    
-    if (typeof initializeBoardPanning === 'function') {
-        try {
-            console.log('DEBUG: LLAMANDO A initializeBoardPanning DENTRO DE TRY...');
-            initializeBoardPanning();
-            console.log('DEBUG: LLAMADA A initializeBoardPanning COMPLETADA.');
-        } catch (error) {
-            console.error('DEBUG: ERROR AL LLAMAR O DENTRO DE initializeBoardPanning:', error);
-        }
-    } else {
-        console.error('DEBUG: initializeBoardPanning NO ES UNA FUNCIÓN O NO ESTÁ DEFINIDA EN ESTE PUNTO.');
-    }
-    // ----- FIN DE CAMBIO PARA DEPURACIÓN -----
-    
+    initializeBoardPanning(); // LLAMADA ÚNICA AQUÍ
+    console.log("boardManager.js: initializeNewGameBoardDOMAndData completada.");
 }
 
+function initializeBoardPanning() {
+    console.log("PANNING_INIT_CALLED (VERSIÓN CORREGIDA)");
 
+    if (!gameBoard || !gameBoard.parentElement) {
+        console.error("Error crítico de Panning: gameBoard o su contenedor no existen.");
+        return;
+    }
 
-// --- NUEVA FUNCIÓN PARA INICIALIZAR TABLERO PARA ESCENARIOS DE CAMPAÑA ---
+    const viewport = gameBoard.parentElement;
+    let lastTouchX_pan_bm = null;
+    let lastTouchY_pan_bm = null;
+
+    // Función para aplicar la transformación y mantener el tablero dentro de los límites
+    function applyTransformAndLimits() {
+        const boardWidth = gameBoard.offsetWidth;
+        const boardHeight = gameBoard.offsetHeight;
+        const viewportWidth = viewport.clientWidth;
+        const viewportHeight = viewport.clientHeight;
+
+        let targetX = currentBoardTranslateX;
+        let targetY = currentBoardTranslateY;
+
+        // Si el tablero es más ancho que la vista, limita el paneo horizontal
+        if (boardWidth > viewportWidth) {
+            targetX = Math.max(targetX, viewportWidth - boardWidth); // Límite izquierdo
+            targetX = Math.min(targetX, 0);                         // Límite derecho
+        } else {
+            // Si es más angosto, céntralo
+            targetX = (viewportWidth - boardWidth) / 2;
+        }
+
+        // Si el tablero es más alto que la vista, limita el paneo vertical
+        if (boardHeight > viewportHeight) {
+            targetY = Math.max(targetY, viewportHeight - boardHeight); // Límite superior
+            targetY = Math.min(targetY, 0);                          // Límite inferior
+        } else {
+            // Si es menos alto, céntralo
+            targetY = (viewportHeight - boardHeight) / 2;
+        }
+        
+        currentBoardTranslateX = targetX;
+        currentBoardTranslateY = targetY;
+        gameBoard.style.transform = `translate(${currentBoardTranslateX}px, ${currentBoardTranslateY}px)`;
+    }
+
+    // --- Panning con Ratón ---
+    gameBoard.addEventListener('mousedown', function(e) {
+        if (e.button !== 0 || (typeof placementMode !== 'undefined' && placementMode.active)) return;
+        e.preventDefault(); // Evita la selección de texto al arrastrar
+        isPanning = true;
+        boardInitialX = currentBoardTranslateX;
+        boardInitialY = currentBoardTranslateY;
+        panStartX = e.clientX;
+        panStartY = e.clientY;
+        gameBoard.classList.add('grabbing');
+    });
+
+    document.addEventListener('mousemove', function(e) {
+        if (!isPanning) return;
+        const dx = e.clientX - panStartX;
+        const dy = e.clientY - panStartY;
+        currentBoardTranslateX = boardInitialX + dx;
+        currentBoardTranslateY = boardInitialY + dy;
+        applyTransformAndLimits();
+    });
+
+    document.addEventListener('mouseup', function(e) {
+        if (e.button !== 0) return;
+        isPanning = false;
+        gameBoard.classList.remove('grabbing');
+    });
+
+    // --- Panning Táctil (para móviles) ---
+    gameBoard.addEventListener('touchstart', function(e) {
+        if (e.touches.length !== 1 || (typeof placementMode !== 'undefined' && placementMode.active)) return;
+        
+        isPanning = true;
+        const touch = e.touches[0];
+        boardInitialX = currentBoardTranslateX;
+        boardInitialY = currentBoardTranslateY;
+        panStartX = touch.clientX;
+        panStartY = touch.clientY;
+        lastTouchX_pan_bm = touch.clientX;
+        lastTouchY_pan_bm = touch.clientY;
+    }, { passive: true }); // passive:true para el inicio es aceptable
+
+    gameBoard.addEventListener('touchmove', function(e) {
+        if (!isPanning || e.touches.length !== 1) return;
+        
+        // ¡CLAVE! Evita que el navegador desplace la página mientras movemos el tablero
+        e.preventDefault(); 
+
+        const touch = e.touches[0];
+        const dx = touch.clientX - lastTouchX_pan_bm;
+        const dy = touch.clientY - lastTouchY_pan_bm;
+        
+        currentBoardTranslateX += dx;
+        currentBoardTranslateY += dy;
+
+        applyTransformAndLimits();
+        
+        lastTouchX_pan_bm = touch.clientX;
+        lastTouchY_pan_bm = touch.clientY;
+    }, { passive: false }); // ¡CLAVE! passive:false permite llamar a preventDefault()
+
+    gameBoard.addEventListener('touchend', function(e) {
+        isPanning = false;
+        lastTouchX_pan_bm = null;
+        lastTouchY_pan_bm = null;
+    });
+
+    gameBoard.addEventListener('touchcancel', function(e) {
+        isPanning = false;
+        lastTouchX_pan_bm = null;
+        lastTouchY_pan_bm = null;
+    });
+
+    console.log("BoardManager: Panning listeners (versión corregida) inicializados.");
+    applyTransformAndLimits(); // Centra o posiciona el tablero al inicio
+}
+
+function createHexDOMElementWithListener(r, c) {
+    console.log(`[BoardManager] Creando listener para hex (${r},${c})`); // <--- NUEVO LOG
+    const hexEl = document.createElement('div');
+    hexEl.classList.add('hex');
+    hexEl.dataset.r = r;
+    hexEl.dataset.c = c;
+ 
+    // Asumimos que HEX_WIDTH y HEX_VERT_SPACING son constantes globales de constants.js
+    const xPos = c * HEX_WIDTH + (r % 2 !== 0 ? HEX_WIDTH / 2 : 0);
+    const yPos = r * HEX_VERT_SPACING;
+    hexEl.style.left = `${xPos}px`;
+    hexEl.style.top = `${yPos}px`;
+
+    // ... (posicionamiento) ...
+    hexEl.addEventListener('click', () => {
+        console.log(`[HEX CLICK LISTENER] Clic detectado en listener directo para (${r},${c})`); // <--- NUEVO LOG
+        onHexClick(r, c);
+    });
+    return hexEl;
+}
+
+// --- FUNCIÓN PARA INICIALIZAR TABLERO PARA ESCENARIOS DE CAMPAÑA ---
 async function initializeGameBoardForScenario(mapTacticalData, scenarioData) {
-    currentBoardTranslateX = 0;
-    currentBoardTranslateY = 0;
-    if (gameBoard) { // Aplicar reseteo visual inmediato
+    console.log("boardManager.js: initializeGameBoardForScenario ha sido llamada.");
+
+    // Reseteo de variables de paneo globales
+    if (typeof currentBoardTranslateX !== 'undefined') currentBoardTranslateX = 0;
+    if (typeof currentBoardTranslateY !== 'undefined') currentBoardTranslateY = 0;
+    if (gameBoard) {
         gameBoard.style.transform = `translate(0px, 0px)`;
     }
     
@@ -384,24 +219,12 @@ async function initializeGameBoardForScenario(mapTacticalData, scenarioData) {
     const R = mapTacticalData.rows;
     const C = mapTacticalData.cols;
 
-    // Actualizar constantes globales o pasarlas a funciones si es necesario
-    // Por ahora, asumiremos que las funciones de renderizado pueden acceder a R y C
-    // o que `board.length` y `board[0].length` se usarán.
-    // TODO: Considerar si BOARD_ROWS y BOARD_COLS globales deben reflejar el mapa actual.
-    // Podría ser mejor almacenarlos en gameState.currentMapDimensions = {rows: R, cols: C};
-
+    // Ajustar board global al tamaño del mapa
     board = Array(R).fill(null).map(() => Array(C).fill(null));
     gameState.cities = []; // Limpiar ciudades del estado global para el nuevo escenario
 
     gameBoard.style.width = `${C * HEX_WIDTH + HEX_WIDTH / 2}px`;
     gameBoard.style.height = `${R * HEX_VERT_SPACING + HEX_HEIGHT * 0.25}px`;
-
-    console.log("------------------------------------------------------");
-    console.log("DEBUG BOARD SIZE (después de asignar style.width/height):");
-    console.log("BOARD_COLS:", (typeof BOARD_COLS !== 'undefined' ? BOARD_COLS : 'NO_DEF'), "| HEX_WIDTH:", (typeof HEX_WIDTH !== 'undefined' ? HEX_WIDTH : 'NO_DEF'));
-    console.log("gameBoard.style.width asignado:", gameBoard.style.width);
-    console.log("gameBoard.style.height asignado:", gameBoard.style.height);
-    console.log("------------------------------------------------------");
 
     for (let r = 0; r < R; r++) {
         for (let c = 0; c < C; c++) {
@@ -419,24 +242,22 @@ async function initializeGameBoardForScenario(mapTacticalData, scenarioData) {
             board[r][c] = {
                 element: hexElement,
                 terrain: terrainType,
-                owner: null, // El dueño se establecerá por capitales, ciudades o unidades
+                owner: null,
                 structure: structureType,
                 isCity: false,
                 isCapital: false,
                 resourceNode: null,
-                visibility: { player1: 'visible', player2: 'visible' }, // Puede ser sobreescrito por escenario
+                visibility: { player1: 'visible', player2: 'visible' },
                 unit: null
             };
         }
     }
     
-    // Marcar que SÍ es una batalla de campaña
-    if (gameState) { // Asegurarse que gameState está definido
+    if (gameState) {
         gameState.isCampaignBattle = true;
-        // gameState.currentScenarioData y gameState.currentMapData ya se establecieron en state.js
     }
 
-    // Añadir Ciudades y Capitales desde mapTacticalData
+    // Añadir Ciudades y Capitales
     if (mapTacticalData.playerCapital) {
         addCityToBoardData(mapTacticalData.playerCapital.r, mapTacticalData.playerCapital.c, 1, mapTacticalData.playerCapital.name, true);
         if (board[mapTacticalData.playerCapital.r]?.[mapTacticalData.playerCapital.c]) {
@@ -444,8 +265,8 @@ async function initializeGameBoardForScenario(mapTacticalData, scenarioData) {
         }
     }
     if (mapTacticalData.enemyCapital) {
-        // Determinar el dueño de la capital enemiga desde scenarioData
-        const enemyOwnerId = scenarioData.enemySetup.ownerId === "ai_1" ? 2 : (scenarioData.enemySetup.ownerId === "ai_2" ? 3 : 2); // Ejemplo de mapeo, asumiendo jugador 2 por defecto
+        // En escenarios de 2 jugadores, el enemigo es el jugador 2
+        const enemyOwnerId = 2; 
         addCityToBoardData(mapTacticalData.enemyCapital.r, mapTacticalData.enemyCapital.c, enemyOwnerId, mapTacticalData.enemyCapital.name, true);
         if (board[mapTacticalData.enemyCapital.r]?.[mapTacticalData.enemyCapital.c]) {
             board[mapTacticalData.enemyCapital.r][mapTacticalData.enemyCapital.c].owner = enemyOwnerId;
@@ -454,55 +275,37 @@ async function initializeGameBoardForScenario(mapTacticalData, scenarioData) {
     mapTacticalData.cities?.forEach(cityInfo => {
         let cityOwnerPlayerNumber = null;
         if (cityInfo.owner === 'player') cityOwnerPlayerNumber = 1;
-        else if (cityInfo.owner === 'enemy' || cityInfo.owner === scenarioData.enemySetup.ownerId) {
-             cityOwnerPlayerNumber = scenarioData.enemySetup.ownerId === "ai_1" ? 2 : (scenarioData.enemySetup.ownerId === "ai_2" ? 3 : 2);
-        } else if (cityInfo.owner === 'neutral' || !cityInfo.owner) {
-            cityOwnerPlayerNumber = null;
-        } else { // Podría ser un ID de IA específico si tienes más de una IA
-            console.warn("Dueño de ciudad no reconocido en mapa:", cityInfo.owner);
-        }
-
+        else if (cityInfo.owner === 'enemy') cityOwnerPlayerNumber = 2; 
+        else if (cityInfo.owner === 'neutral' || !cityInfo.owner) { cityOwnerPlayerNumber = null; }
         addCityToBoardData(cityInfo.r, cityInfo.c, cityOwnerPlayerNumber, cityInfo.name, false);
         if (cityOwnerPlayerNumber && board[cityInfo.r]?.[cityInfo.c]) {
             board[cityInfo.r][cityInfo.c].owner = cityOwnerPlayerNumber;
         }
     });
 
-    // Añadir Nodos de Recursos desde mapTacticalData
+    // Añadir Nodos de Recursos
     mapTacticalData.resourceNodes?.forEach(node => {
         addResourceNodeToBoardData(node.r, node.c, node.type);
-        // Podrías asignar dueño al nodo de recurso si el mapa lo especifica
-        // if (node.owner && board[node.r]?.[node.c]) {
-        //    board[node.r][node.c].owner = node.owner === 'player' ? 1 : (node.owner === 'enemy' ? 2 : null);
-        // }
     });
 
-    // Colocar Unidades Iniciales Pre-desplegadas (si gameState.currentPhase no es 'deployment')
-    // La creación real de la unidad (datos y elemento DOM) debe hacerse en unitActions.js o similar
-    // Aquí solo preparamos los datos si es necesario y llamamos a la función correspondiente.
-    units = []; // Limpiar unidades existentes del estado del juego táctico
+    // Colocar Unidades Iniciales Pre-desplegadas (si aplica, p.ej. para escenarios que no usan fase de 'deployment')
+    // Esto es para unidades que ya están en el mapa al inicio de la batalla, NO para las que se despliegan manualmente.
     if (gameState.currentPhase !== "deployment") {
         scenarioData.playerSetup.initialUnits?.forEach(unitDef => {
-            const unitData = createUnitDataObjectFromDefinition(unitDef, 1); // Nueva función helper
-            if (unitData) placeInitialUnit(unitData); // Nueva función helper
+            const unitData = createUnitDataObjectFromDefinition(unitDef, 1);
+            if (unitData) placeInitialUnit(unitData);
         });
         scenarioData.enemySetup.initialUnits?.forEach(unitDef => {
             const unitData = createUnitDataObjectFromDefinition(unitDef, 2); // Asumiendo IA es jugador 2
             if (unitData) placeInitialUnit(unitData);
         });
-    } else {
-        // Si es fase de despliegue, el jugador y la IA colocarán sus unidades.
-        // Podrías tener unidades "disponibles para reclutar" en lugar de pre-desplegadas.
-        logMessage("Fase de Despliegue para el escenario. Coloca tus unidades.");
     }
 
     renderFullBoardVisualState();
     updateFogOfWar();
-   
-    initializeBoardPanning();
-
+    initializeBoardPanning(); // LLAMADA ÚNICA AQUÍ
+    console.log("boardManager.js: initializeGameBoardForScenario completada.");
 }
-
 
 // --- FUNCIONES HELPER PARA LA INICIALIZACIÓN DE ESCENARIOS ---
 
@@ -594,12 +397,6 @@ function placeInitialUnit(unitData) {
     units.push(unitData); // Añadir al array global de unidades (de state.js)
     // positionUnitElement(unitData) se llamará en renderFullBoardVisualState
 }
-
-
-// --- FUNCIONES EXISTENTES (SIN CAMBIOS GRANDES ESPERADOS EN ESTAS) ---
-
-// generateRandomResourceNodes, addCityToBoardData, addResourceNodeToBoardData
-// renderFullBoardVisualState, renderSingleHexVisuals ya están en tu archivo original.
 
 function generateRandomResourceNodes(level) {
     let cantidadPorTipo;

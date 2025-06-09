@@ -326,6 +326,58 @@ body {
 
 
 /* ====================================================================== */
+/* =============== ESTILOS PARA ARBOL TECNOLOGÍA ============= */
+/* ====================================================================== */
+
+.tech-tree-content .tech-node {
+    position: absolute; /* Para usar las coordenadas x,y */
+    width: 100px; /* Ejemplo */
+    height: 100px; /* Ejemplo */
+    background-color: #2a9d8f; /* Verde similar al de la imagen */
+    color: white;
+    border-radius: 50%; /* Para hacerlos circulares */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    border: 3px solid #264653;
+    cursor: pointer;
+    transition: transform 0.2s, box-shadow 0.2s;
+    padding: 5px;
+    box-sizing: border-box;
+    font-size: 0.8em;
+}
+.tech-tree-content .tech-node:hover {
+    transform: scale(1.05);
+    box-shadow: 0 0 15px #f4a261;
+}
+.tech-tree-content .tech-node img { /* Estilo para el icono dentro del nodo */
+    width: 40px; /* Ejemplo */
+    height: 40px; /* Ejemplo */
+    margin-bottom: 5px;
+}
+.tech-tree-content .tech-node.researched {
+    background-color: #e9c46a; /* Dorado para investigadas */
+    border-color: #f4a261;
+}
+.tech-tree-content .tech-node.available {
+    background-color: #2a9d8f; /* Verde para disponibles */
+    border-color: #264653;
+    box-shadow: 0 0 10px 3px #aaf0d1; /* Un brillo para las disponibles */
+}
+.tech-tree-content .tech-node.locked {
+    background-color: #6c757d; /* Gris para bloqueadas */
+    opacity: 0.7;
+    cursor: not-allowed;
+}
+
+.floating-btn.top-right {
+    top: 15px;
+    right: 15px;
+}
+
+/* ====================================================================== */
 /* =============== ESTILOS PARA CONFIGURACIÓN DE ESCARAMUZA ============= */
 /* ====================================================================== */
 #setupScreen .modal-content {
@@ -844,31 +896,89 @@ body {
 /* === FIN: ESTILOS PARA CONTEXTUAL INFO PANEL === */
 
 
-/* Mensajes Flotantes */
+/* === ESTILO MEJORADO PARA EL PANEL DE MENSAJES === */
 #gameMessagesMobile {
-    position: absolute;
-    bottom: 75px; 
+    position: fixed;
+    bottom: 0;
     left: 50%;
-    transform: translateX(-50%);
+    transform: translateX(-50%); /* Centrado horizontal */
+    width: 80%;
+    max-width: 600px;
     background-color: rgba(0, 0, 0, 0.7);
     color: white;
-    padding: 8px 15px;
-    border-radius: 20px;
-    font-size: 0.85em;
-    z-index: 110; 
+    padding: 8px 12px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-size: 0.9em;
+    text-align: center;
+    z-index: 2000;
+    pointer-events: none; /* Para que no se pueda hacer clic en él */
+    transition: opacity 0.5s ease-in-out; /* Transición suave para el texto */
+    opacity: 1; /* Siempre visible */
+}
+
+#gameMessagesMobile.fade-out {
     opacity: 0;
-    transition: opacity 0.5s;
-    pointer-events: none; 
 }
-#gameMessagesMobile.visible {
-    opacity: 1;
-}
+
 #gameMessagesMobile p {
     margin: 0;
     padding: 0;
 }
 
+#gameMessagesMobile.visible {
+    opacity: 1;
+    visibility: visible;
+    transform: translate(-50%, -50%) scale(1); /* Estado final */
+    transition: opacity 0.4s ease-in-out, transform 0.3s ease-out, visibility 0s linear 0s;
+}
+
+
 /* ELIMINAR O MODIFICAR ESTILOS DEL SIDEBAR ANTIGUO */
 #sidebar {
     display: none !important; /* Ocultar el sidebar antiguo */
+}
+
+/* Estilos para el modo de depuración de vecinos */
+.hex.highlight-debug-start {
+    background-color: yellow !important;
+    border: 3px solid black !important;
+    z-index: 999;
+}
+
+.hex.highlight-debug {
+    background-color: cyan !important;
+    border: 2px dashed red !important;
+    z-index: 998;
+}
+
+.game-log-container {
+    position: fixed;
+    bottom: 10px;
+    left: 10px;
+    width: 300px;
+    max-height: 200px;
+    overflow-y: auto;
+    background-color: rgba(0, 0, 0, 0.6);
+    border-radius: 5px;
+    padding: 10px;
+    z-index: 5000;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column-reverse; /* Los mensajes nuevos aparecen abajo y empujan los viejos hacia arriba */
+}
+
+.log-message {
+    background-color: rgba(255, 255, 255, 0.1);
+    color: white;
+    padding: 5px 8px;
+    margin-top: 5px;
+    border-radius: 3px;
+    font-size: 0.85em;
+    animation: fadeIn 0.5s ease-out;
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
 }

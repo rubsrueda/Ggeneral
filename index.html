@@ -52,14 +52,6 @@
                     <option value="ai_hard">IA (Difícil)</option>
                 </select>
             </div>
-            <div id="player2AiLevelDiv" style="display:block;">
-                <label for="player2AiLevel">Nivel IA Jugador 2:</label>
-                <select id="player2AiLevel">
-                    <option value="easy">Fácil</option>
-                    <option value="normal" selected>Normal</option>
-                    <option value="hard">Difícil</option>
-                </select>
-            </div>
 
             <div>
                 <label for="resourceLevel">Nivel de Recursos:</label>
@@ -67,6 +59,15 @@
                     <option value="min" selected>Mínimos</option>
                     <option value="med">Medios</option>
                     <option value="max">Muchos</option>
+                </select>
+            </div>
+
+            <div>
+                <label for="boardSizeSelect">Tamaño del Tablero:</label>
+                <select id="boardSizeSelect">
+                    <option value="small" selected>Pequeño (12x15)</option>
+                    <option value="medium">Mediano (18x25)</option>
+                    <option value="large">Grande (24x35)</option>
                 </select>
             </div>
 
@@ -84,6 +85,21 @@
             <button id="backToMainMenuBtn_fromSetup" style="margin-top:15px; background-color: #6c757d; width:auto; padding: 10px 15px;">Volver al Menú</button>
         </div>
     </div>
+
+    <!-- ====================================================================== -->
+    <!-- ================== PANTALLA DEL ARBOL DE TECNOLOGÍA ================== -->
+    <!-- ====================================================================== -->
+
+    <div id="techTreeScreen" class="modal" style="display: none; background-color: rgba(0,0,0,0.85);">
+    <div class="modal-content tech-tree-content" style="width: 80%; max-width: 700px; height: 70vh; overflow: auto; background-color: #1e2a38; border: 2px solid #4a5568; box-shadow: 0 0 20px rgba(0,0,0,0.5); border-radius: 10px;">
+        <!-- El botón de cerrar se ha quitado. El modal se cerrará al hacer clic fuera (ya implementado en modalLogic.js) -->
+        <h2 style="text-align: center; color: #e2e8f0; margin-top:15px; margin-bottom: 15px; font-size: 1.5em;">Árbol de Tecnologías</h2>
+        <div id="techTreeContainer" style="position: relative; width: 1500px; height: 1000px; /* Tamaño del canvas interno, ajusta según tu árbol */ background-color: #2d3748; /* Fondo más oscuro para el área del árbol */ margin: 0 auto; border-radius: 5px;">
+            <!-- Los nodos de tecnología se añadirán aquí por JS -->
+        </div>
+    </div>
+    </div>
+
 
     <!-- ====================================================================== -->
     <!-- =================== PANTALLA DEL MAPA MUNDIAL (CAMPAÑA) =================== -->
@@ -111,25 +127,27 @@
     <!-- ====================================================================== -->
     <!-- =================== CONTENEDOR DEL JUEGO TÁCTICO =================== -->
     <!-- ====================================================================== -->
-    <div class="game-container" style="display: none;">
+    <div class="game-container" style="display: none;"> 
         <div id="gameBoard"></div>
 
         <button id="floatingMenuBtn" class="floating-btn top-left">⋮</button>
+        <button id="floatingTechTreeBtn" class="floating-btn top-right">💡</button> <!-- BOTÓN DE TECNOLOGÍA AQUÍ -->
         <button id="floatingEndTurnBtn" class="floating-btn bottom-right">►</button>
-         <button id="floatingCreateDivisionBtn" class="floating-btn bottom-left" style="display: none; font-size: 20px;">➕</button> 
-        <!-- O usa un icono como 🛡️+ o ➕⚔️ -->
-
-         <div id="floatingMenuPanel" class="floating-panel top-left-panel" style="display: none;">
-            <h4 id="floatingMenuTitle">Fase: - <br> Turno 1 - Jugador -</h4> <!-- ID añadido/confirmado para el título -->
+        <button id="floatingCreateDivisionBtn" class="floating-btn bottom-left" style="display: none; font-size: 20px;">➕</button> 
+        
+        <div id="floatingMenuPanel" class="floating-panel top-left-panel" style="display: none;">
+            <h4 id="floatingMenuTitle">Fase: - <br> Turno 1 - Jugador -</h4>
             <div id="playerResourcesGrid_float" class="playerResourcesGrid_common">
-                <div class="resource-labels"><span>Oro</span><span>Fe</span><span>Pi</span><span>Ma</span><span>Com</span></div>
+                <div class="resource-labels">
+                    <span>Oro</span><span>Fe</span><span>Pi</span><span>Ma</span><span>Com</span><span>Inv</span>
+                </div>
                 <div class="resource-values">
                     <span data-resource="oro">0</span><span data-resource="hierro">0</span>
                     <span data-resource="piedra">0</span><span data-resource="madera">0</span>
                     <span data-resource="comida">0</span>
+                    <span data-resource="researchPoints">0</span> 
                 </div>
             </div>
-            
             <button id="concedeBattleBtn_float" class="panel-button">Rendirse</button>
             <button id="saveGameBtn_float" class="panel-button">Guardar Partida</button>
             <label for="loadGameInput_float" class="button-like-label panel-button">Cargar Partida</label>
@@ -137,39 +155,23 @@
             <button id="backToMainFromBattleBtn" class="panel-button" style="background-color:#6c757d;">Volver al Menú Principal</button>
         </div>
 
-        <div id="contextualInfoPanel" class="floating-panel bottom-panel" style="display: none;">
+        <div id="contextualInfoPanel" class="floating-panel bottom-panel">
             <div id="contextualHeader">
                 <h3 id="contextualTitle">Información</h3>
                 <button id="closeContextualPanelBtn" class="close-panel-btn">×</button>
             </div>
             <div id="contextualContent">
-                <!-- Contenido para información de unidad/hexágono (generado por JS) -->
-                <!-- Ejemplo de estructura para info de unidad:
-                <div class="unit-name-editor">
-                    <label for="selectedUnitNameInput_ctx">Nombre:</label>
-                    <input type="text" id="selectedUnitNameInput_ctx" readonly>
-                    <button id="editUnitNameBtn_ctx" title="Editar Nombre">✏️</button>
-                    <button id="saveUnitNameBtn_ctx" title="Guardar Nombre" style="display:none;">✔️</button>
-                </div>
-                <p>A/D/M/I: <span id="selectedUnitStats_ctx">-</span><span>/</span><span id="selectedUnitInitiative_ctx">-</span></p>
-                <p>Rango Vis/Atk: <span id="selectedUnitRange_ctx">-</span></p>
-                <p>Salud: <span id="selectedUnitHealth_ctx">-</span>/<span id="selectedUnitMaxHealth_ctx">-</span></p>
-                <p>Experiencia: <span id="selectedUnitExperience_ctx">-</span>/<span id="selectedUnitMaxExperience_ctx">-</span></p>
-                <h4>Regimientos (<span id="regimentCount_ctx">0</span>):</h4>
-                <ul id="selectedUnitRegimentsList_ctx" class="regiments-detailed-list"></ul>
-                -->
+                <!-- Contenido generado por JS -->
             </div>
             <div id="contextualActions">
-                <!-- Botones de acción contextuales (generados por JS) -->
-                <!-- <button id="ctxCreateDivisionBtn">Crear División</button> -->
-                <!-- <button id="ctxBuildStructureBtn">Construir</button> -->
-                <!-- <button id="ctxReinforceBtn">Reforzar</button> -->
+                <!-- Botones de acción generados por JS -->
             </div>
         </div>
+
         <div id="gameMessagesMobile" class="floating-messages bottom-center">
             <p>Mensajes del juego...</p>
         </div>
-    </div>
+    </div> 
 
     <!-- ====================================================================== -->
     <!-- =================== MODALES DE JUEGO TÁCTICO =================== -->
@@ -199,18 +201,24 @@
         </div>
     </div>
 
+    
+    <div id="gameLogContainer" class="game-log-container"></div>
+
     <!-- ====================================================================== -->
     <!-- ===================== CARGA DE SCRIPTS ===================== -->
     <!-- ====================================================================== -->
     <script src="constants.js"></script>
     <script src="state.js"></script>
+    <script src="technologyTree.js"></script> 
     <script src="worldMapData.js"></script>
     <script src="maps/tactical_britain_coast_map.js"></script>
     <script src="scenarios/britain_defense_scenario.js"></script>
 
     <script src="domElements.js"></script> <!-- Debe cargarse ANTES de los scripts que usan sus variables -->
     <script src="utils.js"></script>
+    <script src="cheats.js"></script>
     <script src="uiUpdates.js"></script>
+    <script src="techScreenUI.js"></script>
     <script src="boardManager.js?v=1"></script>
     <script src="unit_Actions.js"></script> <!-- O unitActions.js -->
     <script src="modalLogic.js"></script>

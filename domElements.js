@@ -21,8 +21,8 @@ let startCampaignBtnEl, startSkirmishBtnEl;
 
 // --- Elementos de Configuración de Escaramuza ---
 let startGameBtn, player1TypeSelect, player1AiLevelDiv, player1AiLevelSelect,
-    player2TypeSelect, player2AiLevelDiv, player2AiLevelSelect,
-    resourceLevelSelect, initialUnitsCountSelect, backToMainMenuBtn_fromSetup;
+    player2TypeSelect, resourceLevelSelect, initialUnitsCountSelect, backToMainMenuBtn_fromSetup,
+    boardSizeSelect;
 
 // --- Elementos del Mapa Mundial (Campaña) ---
 let worldMapImageEl, territoryMarkerContainerEl, campaignMessagesEl, backToMainMenuBtn_fromCampaign;
@@ -34,7 +34,7 @@ let scenarioBriefingModalEl, scenarioTitleEl, scenarioImageEl, scenarioDescripti
 // --- Elementos del Juego Táctico (Flotantes y Tablero) ---
 let gameBoard, floatingMenuBtn, floatingEndTurnBtn, floatingMenuPanel,
     contextualInfoPanel, closeContextualPanelBtn, gameMessagesMobile,
-    floatingCreateDivisionBtn; // <<<< Variable para el botón flotante
+    floatingCreateDivisionBtn, floatingTechTreeBtn; // <<<< Variable para el botón flotante
 
 // Elementos DENTRO del panel de menú flotante
 let turnNumberDisplay_float, currentPlayerDisplay_float, floatingMenuTitle,
@@ -63,6 +63,7 @@ function initializeDomElements() {
     if (domElementsInitialized) return;
     console.log("domElements.js: Inicializando referencias a elementos DOM...");
 
+    floatingTechTreeBtn = document.getElementById('floatingTechTreeBtn');
     mainMenuScreenEl = document.getElementById('mainMenuScreen');
     setupScreen = document.getElementById('setupScreen');
     worldMapScreenEl = document.getElementById('worldMapScreen');
@@ -74,10 +75,9 @@ function initializeDomElements() {
     player1AiLevelDiv = document.getElementById('player1AiLevelDiv');
     player1AiLevelSelect = document.getElementById('player1AiLevel');
     player2TypeSelect = document.getElementById('player2Type');
-    player2AiLevelDiv = document.getElementById('player2AiLevelDiv');
-    player2AiLevelSelect = document.getElementById('player2AiLevel');
     resourceLevelSelect = document.getElementById('resourceLevel');
     initialUnitsCountSelect = document.getElementById('initialUnitsCount');
+    boardSizeSelect = document.getElementById('boardSizeSelect');
     backToMainMenuBtn_fromSetup = document.getElementById('backToMainMenuBtn_fromSetup');
     worldMapImageEl = document.getElementById('worldMapImage');
     territoryMarkerContainerEl = document.getElementById('territoryMarkerContainer');
@@ -136,6 +136,9 @@ function initializeDomElements() {
 
     if (!confirmBuildBtn) console.error("DOM ERROR: confirmBuildBtn (ID: 'confirmBuildBtn') NO ENCONTRADO");
     else console.log("DOM OK: confirmBuildBtn encontrado.");
+
+    if (!floatingTechTreeBtn) console.warn("DOM WARN: floatingTechTreeBtn no encontrado.");
+    else console.log("DOM OK: floatingTechTreeBtn encontrado.")
 
     domElementsInitialized = true;
     console.log("domElements.js: Referencias a elementos DOM completamente inicializadas.");
