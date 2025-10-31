@@ -1,42 +1,38 @@
-// unit_Actions.js
+/// unit_Actions.js
 // Lógica relacionada con las acciones de las unidades (selección, movimiento, ataque, colocación).
-// VERSIÓN CORREGIDA PARA USAR 'attackRange' consistentemente
 
-console.log("unit_Actions.js CARGADO (Corregido para usar 'attackRange')");
+// ========== VERSIÓN DE CÓDIGO: v3.1 - DEDUPLICACIÓN ACTIVA ==========
+console.log("%c[SISTEMA] unit_Actions.js v3.1 CARGADO - actionId incluido en todas las acciones", "background: #00FF00; color: #000; font-weight: bold; padding: 4px;");
 
-// ---------------------------------------------------------------------------------
-// OBTENER VECINOS DE HEXÁGONO (¡CRUCIAL!)
-// ---------------------------------------------------------------------------------
-
-function getHexNeighbors(r, c) {
-    // La matriz de direcciones define los 6 posibles desplazamientos de los vecinos.
-    // Esta estructura es para un sistema de coordenadas "odd-r" donde las filas impares se desplazan.
-    const neighbor_directions = [
-        // Par (r % 2 === 0)
-        [ {r: 0, c: +1}, {r: -1, c: 0}, {r: -1, c: -1}, {r: 0, c: -1}, {r: +1, c: -1}, {r: +1, c: 0} ],
-        // Impar (r % 2 !== 0)
-        [ {r: 0, c: +1}, {r: -1, c: +1}, {r: -1, c: 0}, {r: 0, c: -1}, {r: +1, c: 0}, {r: +1, c: +1} ]
-    ];
-
-    // Selecciona el conjunto de direcciones correcto basado en si la fila es par o impar.
-    const directions = neighbor_directions[r % 2];
-    const neighbors = [];
-
-    // Calcula la coordenada de cada vecino y la añade al array.
-    for (const dir of directions) {
-        neighbors.push({ r: r + dir.r, c: c + dir.c });
+function showFloatingDamage(target, damageAmount) {
+    // Verificación robusta. gameBoard se obtiene directamente del DOM por seguridad.
+    const gameBoardElement = document.getElementById('gameBoard');
+    if (!target?.element || !gameBoardElement) {
+        console.error("showFloatingDamage: No se puede mostrar el daño. Target, su elemento, o el gameBoard no existen.");
+        return;
     }
 
-    // Filtra para devolver solo coordenadas que existen realmente en el tablero.
-    return neighbors.filter(n =>
-        board && board.length > 0 && n.r >= 0 && n.r < board.length &&
-        board[0] && n.c >= 0 && n.c < board[0].length
-    );
+    const damageText = document.createElement('span');
+    damageText.className = 'damage-dealt-text';
+    damageText.textContent = `-${damageAmount}`;
+
+    // Lo añadimos al gameBoard para que se posicione relativo a él.
+    gameBoardElement.appendChild(damageText);
+
+    // Obtenemos el centro de la unidad atacada, relativo al gameBoard
+    const unitCenterX = target.element.offsetLeft + target.element.offsetWidth / 2;
+    const unitCenterY = target.element.offsetTop + target.element.offsetHeight / 2;
+
+    // Ahora que está en el DOM, su `offsetWidth` es válido. Centramos el texto.
+    damageText.style.left = `${unitCenterX - damageText.offsetWidth / 2}px`;
+    damageText.style.top = `${unitCenterY - damageText.offsetHeight / 2}px`;
+
+    // La animación CSS se encarga del resto. Lo eliminamos después.
+    setTimeout(() => {
+        damageText.remove();
+    }, 1200); // Duración de la animación.
 }
 
-// ---------------------------------------------------------------------------------
-// LÓGICA DE DISTANCIA HEXAGONAL
-// ---------------------------------------------------------------------------------
 function getHexDistance(startCoords, endCoords) {
     if (!startCoords || !endCoords) return Infinity;
     if (startCoords.r === endCoords.r && startCoords.c === endCoords.c) return 0;
@@ -44,8 +40,8 @@ function getHexDistance(startCoords, endCoords) {
     let queue = [{ r: startCoords.r, c: startCoords.c, dist: 0 }];
     let visited = new Set();
     visited.add(`${startCoords.r},${startCoords.c}`);
-    // Usar el attackRange de la unidad de inicio si está disponible para optimizar la búsqueda
-    const maxDistanceToSearch = startCoords.attackRange ? startCoords.attackRange + 2 : 30; // +2 para holgura
+    
+    const maxDistanceToSearch = startCoords.attackRange ? startCoords.attackRange + 2 : 30;
     let iterations = 0;
 
     while(queue.length > 0 && iterations < maxDistanceToSearch * 7) { 
@@ -66,192 +62,19 @@ function getHexDistance(startCoords, endCoords) {
     return Infinity; 
 }
 
-// ---------------------------------------------------------------------------------
-// ACCIONES DE COLOCACIÓN DE UNIDADES
-// ---------------------------------------------------------------------------------
-function handlePlacementModeClick(r, c) {
-    // ... (sin cambios en esta función respecto al uso de 'range' vs 'attackRange', ya que se enfoca en colocar)
-    // Asegúrate que la unidad en placementMode.unitData tenga 'attackRange' si es necesario
-    // para alguna lógica DENTRO de placeFinalizedDivision o al crear la unidad.
-    console.log(`[Placement] Clic en (${r},${c}). placementMode.active=${placementMode.active}, Unidad: ${placementMode.unitData ? placementMode.unitData.name : 'Ninguna'}`);
-    const hexData = board[r]?.[c];
-    if (!hexData) {
-        console.error("[Placement] Hex data no encontrada.");
-        if (typeof logMessage === "function") logMessage("Hexágono inválido.");
-        return;
-    }
-
-    const unitToPlace = placementMode.unitData;
-    if (!unitToPlace) {
-        console.error("[Placement] No hay unitData. Desactivando modo.");
-        placementMode.active = false;
-        placementMode.unitData = null;
-        if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-        return;
-    }
-    console.log("[Placement] Intentando colocar:", unitToPlace.name, "en fase:", gameState.currentPhase);
-
-    let canPlace = !getUnitOnHex(r, c);
-    let reasonForNoPlacement = canPlace ? "" : "Ya hay una unidad.";
-    let forceCancelAndRefund = false;
-
-    if (gameState.currentPhase === "deployment") {
-        if (hexData.owner !== null && hexData.owner !== gameState.currentPlayer) {
-            if (canPlace) reasonForNoPlacement = "No en territorio enemigo.";
-            canPlace = false;
-        }
-        if (canPlace && gameState.isCampaignBattle && gameState.currentScenarioData?.playerSetup?.startHexes) {
-            const playerStartZones = gameState.currentScenarioData.playerSetup.startHexes;
-            if (playerStartZones && playerStartZones.length > 0) {
-                if (!playerStartZones.some(zone => zone.r === r && zone.c === c)) {
-                    if (canPlace) reasonForNoPlacement = "Solo en zonas de inicio designadas.";
-                    canPlace = false;
-                }
-            }
-        }
-    } else if (gameState.currentPhase === "play") {
-        let isRecruitmentHex = hexData.owner === gameState.currentPlayer && (hexData.isCity || hexData.structure === "Fortaleza");
-        if (!isRecruitmentHex) {
-            reasonForNoPlacement = canPlace ? "Solo en ciudades/fortalezas propias." : reasonForNoPlacement + " Y solo en ciudades/fortalezas propias.";
-            canPlace = false;
-            forceCancelAndRefund = true;
-        } else if (!canPlace && isRecruitmentHex) {
-            reasonForNoPlacement = "Lugar de reclutamiento ocupado.";
-        }
-    } else {
-        reasonForNoPlacement = "Fase incorrecta: " + gameState.currentPhase;
-        canPlace = false;
-        forceCancelAndRefund = true;
-    }
-
-    if (canPlace) {
-        placeFinalizedDivision(unitToPlace, r, c); // Pasa el unitData como está
-        placementMode.active = false;
-        placementMode.unitData = null;
-        if (typeof logMessage === "function") logMessage(`${unitToPlace.name} colocada.`);
-        if (gameState.currentPhase === "play") {
-            if (typeof deselectUnit === "function") deselectUnit();
-            if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
-        }
-        if (typeof UIManager !== 'undefined' && UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo();
-        if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-    } else {
-        if (typeof logMessage === "function") logMessage(`No se puede colocar: ${reasonForNoPlacement}`);
-        if (forceCancelAndRefund && unitToPlace) {
-            if (unitToPlace.cost) {
-                for (const resourceType in unitToPlace.cost) {
-                    if (gameState.playerResources[gameState.currentPlayer][resourceType] !== undefined) {
-                        gameState.playerResources[gameState.currentPlayer][resourceType] += unitToPlace.cost[resourceType];
-                    }
-                }
-                if (typeof UIManager !== 'undefined' && UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo();
-                if (typeof logMessage === "function") logMessage("Recursos reembolsados.");
-            }
-            placementMode.active = false;
-            placementMode.unitData = null;
-            if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-            if (typeof deselectUnit === "function") deselectUnit();
-            if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
-        } else {
-             if (typeof logMessage === "function") logMessage("Intenta en otro hexágono.");
-        }
-    }
-}
-
-
-function placeFinalizedDivision(unitData, r, c) {
-    console.log(`[PFD] Colocando ${unitData.name} en (${r},${c})`);
-    if (!unitData) { console.error("[PFD] ERROR: unitData es null."); return; }
-
-    const unitElement = document.createElement('div');
-    unitElement.classList.add('unit', `player${unitData.player}`);
-    unitElement.textContent = unitData.sprite || '?';
-    unitElement.dataset.id = unitData.id;
-    const strengthDisplay = document.createElement('div');
-    strengthDisplay.classList.add('unit-strength');
-    strengthDisplay.textContent = unitData.currentHealth;
-    unitElement.appendChild(strengthDisplay);
-
-    if (gameBoard && typeof gameBoard.appendChild === "function") { gameBoard.appendChild(unitElement); }
-    else { console.error("[PFD] ERROR: gameBoard no disponible."); return; }
-
-    unitData.r = r;
-    unitData.c = c;
-    unitData.element = unitElement;
-
-    if (typeof unitData.movement !== 'number' || unitData.movement <= 0) {
-        console.warn(`[PFD] ${unitData.name} no tiene 'movement' válido (valor: ${unitData.movement}). Asignando fallback 3.`);
-        unitData.movement = 3;
-    }
-    if (typeof unitData.attackRange !== 'number' || unitData.attackRange < 0) {
-        console.warn(`[PFD] ${unitData.name} no tiene 'attackRange' válido (valor: ${unitData.attackRange}). Asignando fallback.`);
-        unitData.attackRange = (unitData.attack && unitData.attack > 0) ? 1 : 0;
-    }
-    unitData.currentMovement = unitData.movement;
-    unitData.hasMoved = false;
-    unitData.hasAttacked = false;
-    console.log(`[PFD - Init] ${unitData.name}: baseMovement=${unitData.movement}, currentMovement=${unitData.currentMovement}, hasMoved=${unitData.hasMoved}, attackRange=${unitData.attackRange}`);
-
-    const targetHexData = board[r]?.[c];
-    if (targetHexData) {
-        targetHexData.unit = unitData;
-        if (targetHexData.owner !== unitData.player) {
-            targetHexData.owner = unitData.player;
-            if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(r, c);
-        }
-    } else { console.error(`[PFD] ERROR: Hex destino (${r},${c}) no encontrado.`); if (unitElement.parentElement) unitElement.remove(); return; }
-
-    if (units && typeof units.push === "function") {
-        units.push(unitData);
-        // --- INICIO LOG DE DEBUG ---
-        console.log(`[placeFinalizedDivision DEBUG] Unidad ${unitData.name} (J${unitData.player}, HP:${unitData.currentHealth}) PUSHED. Total units: ${units.length}`);
-        const justAdded = units.find(u => u.id === unitData.id); // Buscar por ID para más seguridad
-        if (justAdded) {
-            console.log(`[placeFinalizedDivision DEBUG] Verificando: ID=${justAdded.id}, Player=${justAdded.player}, HP=${justAdded.currentHealth}, R=${justAdded.r}, C=${justAdded.c}, Nombre=${justAdded.name}`);
-        } else {
-            console.error(`[placeFinalizedDivision DEBUG] ERROR: No se encontró la unidad recién añadida en el array 'units'.`);
-        }
-        // --- FIN LOG DE DEBUG ---
-    }
-    else { console.error("[PFD] ERROR: Array 'units' no disponible."); return; }
-
-    if (typeof positionUnitElement === "function") positionUnitElement(unitData);
-    if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) UIManager.updateUnitStrengthDisplay(unitData);
-
-    if (gameState.currentPhase === "deployment") {
-        if (!gameState.unitsPlacedByPlayer) gameState.unitsPlacedByPlayer = {1:0, 2:0};
-        gameState.unitsPlacedByPlayer[unitData.player] = (gameState.unitsPlacedByPlayer[unitData.player] || 0) + 1;
-        if (typeof logMessage === "function") { logMessage(`J${unitData.player} desplegó ${gameState.unitsPlacedByPlayer[unitData.player]}/${gameState.deploymentUnitLimit === Infinity ? '∞' : gameState.deploymentUnitLimit}.`); }
-        if (typeof floatingCreateDivisionBtn !== 'undefined' && floatingCreateDivisionBtn && unitData.player === gameState.currentPlayer && gameState.unitsPlacedByPlayer[unitData.player] >= gameState.deploymentUnitLimit) {
-            floatingCreateDivisionBtn.disabled = true;
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------------
-// SELECCIÓN Y ACCIONES DE UNIDADES EN JUEGO (usando handleActionWithSelectedUnit que retorna booleano)
-// ---------------------------------------------------------------------------------
-
 function checkAndApplyLevelUp(unit) {
-    if (!unit || !XP_LEVELS) return false; // Salir si no hay unidad o XP_LEVELS
-    if (XP_LEVELS[unit.level]?.nextLevelXp === 'Max') return false; // Ya está en el nivel máximo
+    if (!unit || !XP_LEVELS) return false; 
+    if (XP_LEVELS[unit.level]?.nextLevelXp === 'Max') return false; 
 
     let newLevelAssigned = false;
-    // Iterar para permitir múltiples subidas de nivel si se gana mucha XP de golpe
     while (true) {
         const currentLevelData = XP_LEVELS[unit.level];
         if (!currentLevelData || currentLevelData.nextLevelXp === 'Max') {
-            break; // Nivel máximo alcanzado o datos de nivel inválidos
+            break; 
         }
-
-        const xpNeededForNextLevel = currentLevelData.nextLevelXp; // XP para ALCANZAR el siguiente nivel desde el inicio de este
-                                                              // OJO: Con tu estructura actual, esto es el umbral TOTAL de XP.
-
-        // Con tu estructura de XP_LEVELS (donde nextLevelXp es el umbral para ESE nivel):
-        // Necesitamos encontrar el nivel más alto que la unidad ha alcanzado con su XP actual.
         let awardedLevel = 0;
         for (let i = XP_LEVELS.length - 1; i >= 0; i--) {
-            if (XP_LEVELS[i].nextLevelXp === 'Max' && unit.experience >= XP_LEVELS[i-1]?.nextLevelXp) { // Asumiendo que el anterior a Max es el umbral de Héroe
+            if (XP_LEVELS[i].nextLevelXp === 'Max' && XP_LEVELS[i-1] && unit.experience >= XP_LEVELS[i-1].nextLevelXp) { 
                  awardedLevel = i;
                  break;
             }
@@ -260,45 +83,22 @@ function checkAndApplyLevelUp(unit) {
                 break;
             }
         }
-        // Si el nivel 0 tiene nextLevelXp: 0, y la unidad tiene < 50 XP, awardedLevel será 0.
-        if (unit.experience < XP_LEVELS[1].nextLevelXp ) { // Si no alcanza ni para Regular
+        if (unit.experience < XP_LEVELS[1].nextLevelXp ) { 
              awardedLevel = 0;
         }
 
-
         if (awardedLevel > unit.level) {
-            const oldLevelData = XP_LEVELS[unit.level];
             unit.level = awardedLevel;
             const newLevelData = XP_LEVELS[unit.level];
             newLevelAssigned = true;
-
-            // Aplicar bonificaciones (esto es un ejemplo, podrías tener más)
-            // Las bonificaciones de XP_LEVELS son las TOTALES para ese nivel, no incrementales.
-            // Si quisieras que fueran incrementales, la estructura de XP_LEVELS o esta lógica cambiaría.
-            // Aquí asumimos que las estadísticas base de la unidad NO incluyen bonos de nivel.
-            // Y que los bonos de nivel se recalculan y aplican.
-
-            // Una forma más simple es que las stats de la unidad ya reflejen su nivel
-            // y aquí solo anunciamos. O, si las recalculas:
-            // unit.attack = (unidad.baseAttack || REGIMENT_TYPES[unidad.type].attack) + newLevelData.attackBonus;
-            // unit.defense = (unidad.baseDefense || REGIMENT_TYPES[unidad.type].defense) + newLevelData.defenseBonus;
-
-            if (typeof logMessage === "function") {
-                logMessage(`${unit.name} ha subido a Nivel ${unit.level} (${newLevelData.currentLevelName})!`);
-            }
-            // Podrías añadir un pequeño efecto visual o sonoro.
-
-            // Si se sube de nivel, y el nuevo nivel no es el máximo,
-            // se sigue en el bucle por si la XP da para otro nivel más.
+            if (typeof logMessage === "function") logMessage(`${unit.name} ha subido a Nivel ${unit.level} (${newLevelData.currentLevelName})!`);
             if (newLevelData.nextLevelXp === 'Max') break;
         } else {
-            // No hay más subidas de nivel con la XP actual
             break;
         }
     }
 
     if (newLevelAssigned) {
-        // Si el panel de la unidad está visible, actualizarlo
         if (selectedUnit && selectedUnit.id === unit.id && typeof UIManager !== 'undefined' && UIManager.showUnitContextualInfo) {
             UIManager.showUnitContextualInfo(selectedUnit, true);
         }
@@ -306,323 +106,334 @@ function checkAndApplyLevelUp(unit) {
     return newLevelAssigned;
 }
 
-function mergeUnits(mergingUnit, targetUnit) { // mergingUnit es la que se mueve (A), targetUnit es la estacionaria (B)
-    if (!mergingUnit || !targetUnit || mergingUnit.player !== targetUnit.player || mergingUnit.id === targetUnit.id) {
-        console.error("[Merge] Condiciones inválidas para fusionar.", mergingUnit, targetUnit);
-        return false; // Indicar que la acción no se completó
-    }
+function placeFinalizedDivision(unitData, r, c) {
+    if (!unitData) { console.error("[placeFinalizedDivision] Intento de colocar unidad con datos nulos."); return; }
+    if (!unitData.id) unitData.id = `u${unitIdCounter++}`;
+    unitData.r = r; unitData.c = c; unitData.element = null;
+    const existingIndex = units.findIndex(u => u.id === unitData.id);
+    if (existingIndex > -1) { if(units[existingIndex].element) units[existingIndex].element.remove(); units.splice(existingIndex, 1); }
+    units.push(unitData);
 
-    // Verificar si hay espacio en la unidad objetivo para más regimientos
-    const availableSlotsInTarget = MAX_REGIMENTS_PER_DIVISION - (targetUnit.regiments?.length || 0);
-    if (availableSlotsInTarget <= 0) {
-        const msg = `${targetUnit.name} ya tiene el máximo de regimientos (${MAX_REGIMENTS_PER_DIVISION}). No se puede fusionar.`;
-        logMessage(msg);
-        if (typeof UIManager !== 'undefined' && UIManager.showMessageTemporarily) UIManager.showMessageTemporarily(msg, 3000, true);
-        selectUnit(targetUnit); // Seleccionar la unidad en la que se hizo clic
-        return false;
-    }
-
-    const numRegimentsToTransfer = Math.min(mergingUnit.regiments?.length || 0, availableSlotsInTarget);
-    if (numRegimentsToTransfer <= 0) {
-        const msg = `${mergingUnit.name} no tiene regimientos para transferir o ${targetUnit.name} no tiene espacio.`;
-        logMessage(msg);
-        if (typeof UIManager !== 'undefined' && UIManager.showMessageTemporarily) UIManager.showMessageTemporarily(msg, 3000, true);
-        selectUnit(targetUnit);
-        return false;
-    }
-
-    // Simulación de movimiento
-    const costToReach = getMovementCost(mergingUnit, mergingUnit.r, mergingUnit.c, targetUnit.r, targetUnit.c, true);
-    if (costToReach === Infinity || costToReach > (mergingUnit.currentMovement || 0)) {
-        logMessage(`${mergingUnit.name} no puede alcanzar a ${targetUnit.name} para fusionarse.`);
-        return false;
-    }
-
-    // Confirmación
-    if (!window.confirm(`¿Fusionar ${mergingUnit.name} con ${targetUnit.name}? ${mergingUnit.name} se disolverá y sus regimientos (hasta ${numRegimentsToTransfer}) se unirán a ${targetUnit.name}.`)) {
-        logMessage("Fusión cancelada.");
-        return false;
-    }
-
-    console.log(`[Merge] Fusionando ${numRegimentsToTransfer} regimiento(s) de ${mergingUnit.name} en ${targetUnit.name}.`);
-    logMessage(`${mergingUnit.name} se fusiona con ${targetUnit.name}.`);
-
-    // 1. Transferir regimientos (solo los que quepan)
-    for (let i = 0; i < numRegimentsToTransfer; i++) {
-        if (mergingUnit.regiments[i]) { // Asegurarse de que el regimiento exista
-            targetUnit.regiments.push(JSON.parse(JSON.stringify(mergingUnit.regiments[i]))); // Añadir una copia profunda
+    const targetHexData = board[r]?.[c];
+    if (targetHexData) {
+        targetHexData.unit = unitData;
+        if (targetHexData.owner === null) {
+            const placingPlayer = unitData.player; targetHexData.owner = placingPlayer; targetHexData.estabilidad = 1;
+            targetHexData.nacionalidad = { 1: 0, 2: 0 }; targetHexData.nacionalidad[placingPlayer] = 1;
+            const city = gameState.cities.find(ci => ci.r === r && ci.c === c);
+            if (city?.owner === null) { city.owner = placingPlayer; logMessage(`Ciudad neutral capturada!`); }
         }
     }
-
-    // 2. Recalcular Salud de targetUnit
-    // Sumar salud actual, pero la maxHealth se recalculará
-    let combinedCurrentHealth = targetUnit.currentHealth + mergingUnit.currentHealth;
-
-    // 3. Recalcular Estadísticas de targetUnit (similar a handleFinalizeDivision)
-    let newAttack = 0, newDefense = 0, newMaxHealth = 0;
-    let newMovement = Infinity, newVision = 0, newAttackRange = 0, newInitiative = 0;
-    let baseSprite = targetUnit.regiments.length > 0 ? REGIMENT_TYPES[targetUnit.regiments[0].type]?.sprite || '❓' : '❓'; // Sprite del primer regimiento como base
-
-    targetUnit.regiments.forEach(reg => {
-        const regData = REGIMENT_TYPES[reg.type] || {}; // Obtener datos base del regimiento
-        newAttack += regData.attack || 0;
-        newDefense += regData.defense || 0;
-        newMaxHealth += regData.health || 0;
-        newMovement = Math.min(newMovement, regData.movement || 1);
-        newVision = Math.max(newVision, regData.visionRange || 0);
-        newAttackRange = Math.max(newAttackRange, regData.attackRange || 0);
-        newInitiative = Math.max(newInitiative, regData.initiative || 0); // O podrías promediar iniciativa
-    });
-    newMovement = (newMovement === Infinity) ? 1 : newMovement;
-
-    targetUnit.attack = newAttack;
-    targetUnit.defense = newDefense;
-    targetUnit.maxHealth = newMaxHealth;
-    targetUnit.currentHealth = Math.min(combinedCurrentHealth, newMaxHealth); // Salud actual no puede exceder la nueva maxHealth
-    targetUnit.movement = newMovement;
-    // currentMovement no se resetea aquí, ya que la unidad que se mueve es la que gasta su movimiento
-    targetUnit.visionRange = newVision;
-    targetUnit.attackRange = newAttackRange;
-    targetUnit.initiative = newInitiative;
-    targetUnit.sprite = baseSprite; // Actualizar sprite si es necesario
-
-    // 4. Manejar Experiencia (ejemplo: tomar la XP total, el nivel se recalculará si es necesario)
-    targetUnit.experience = (targetUnit.experience || 0) + (mergingUnit.experience || 0);
-    // Opcional: Limitar la experiencia máxima si tienes un cap global
-    // targetUnit.experience = Math.min(targetUnit.experience, MAX_POSSIBLE_XP);
-    if (typeof checkAndApplyLevelUp === "function") { // checkAndApplyLevelUp de unit_Actions.js
-        checkAndApplyLevelUp(targetUnit); // Verificar si la nueva XP resulta en subida de nivel
+    
+    calculateRegimentStats(unitData);
+    
+    // <<== LÍNEA PROBLEMÁTICA ELIMINADA ==>>
+    // Se eliminó la línea: if (!unitData.isSplit) { unitData.currentHealth = unitData.maxHealth; }
+    // Ahora se respetará la vida actual que ya trae el objeto `unitData`.
+    
+    if (UIManager && typeof UIManager.renderAllUnitsFromData === 'function') {
+        UIManager.renderAllUnitsFromData();
+    } else {
+        console.error("CRÍTICO: UIManager.renderAllUnitsFromData no está disponible.");
     }
     
-    // 5. Marcar la unidad que se movió y fusionó (mergingUnit) como que ya actuó
-    mergingUnit.currentMovement -= costToReach;
-    mergingUnit.hasMoved = true;
-    mergingUnit.hasAttacked = true;
-
-    // 6. "Destruir" la mergingUnit (sin dar XP/oro al "destructor" que es uno mismo)
-    if (mergingUnit.element && mergingUnit.element.parentElement) {
-        mergingUnit.element.remove();
-    }
-    const index = units.findIndex(u => u.id === mergingUnit.id);
-    if (index > -1) {
-        units.splice(index, 1);
-    }
-    if (board[mergingUnit.r]?.[mergingUnit.c]?.unit?.id === mergingUnit.id) {
-        board[mergingUnit.r][mergingUnit.c].unit = null;
-        if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(mergingUnit.r, mergingUnit.c);
-    }
+    renderSingleHexVisuals(r, c);
     
-    // 7. Actualizar UI
-    if (typeof UIManager !== 'undefined') {
-        UIManager.updateUnitStrengthDisplay(targetUnit); // Mostrar nueva salud de la unidad fusionada
-        if (selectedUnit && selectedUnit.id === mergingUnit.id) { 
-            deselectUnit(); 
-            selectUnit(targetUnit); // Seleccionar la unidad fusionada
-        } else if (selectedUnit && selectedUnit.id === targetUnit.id) {
-            UIManager.showUnitContextualInfo(targetUnit, true); // Refrescar panel de la unidad fusionada
+    if (typeof updateFogOfWar === 'function') updateFogOfWar();
+
+    if (gameState.currentPhase === "deployment") {
+        if (!gameState.unitsPlacedByPlayer[unitData.player]) gameState.unitsPlacedByPlayer[unitData.player] = 0;
+        gameState.unitsPlacedByPlayer[unitData.player]++;
+        logMessage(`J${unitData.player} desplegó ${gameState.unitsPlacedByPlayer[unitData.player]}/${gameState.deploymentUnitLimit === Infinity ? '∞' : gameState.deploymentUnitLimit}.`);
+        
+        // CORRECCIÓN: Actualizar la UI para ocultar el botón si se alcanzó el límite
+        if (UIManager && typeof UIManager.updateActionButtonsBasedOnPhase === 'function') {
+            UIManager.updateActionButtonsBasedOnPhase();
         }
-        UIManager.updatePlayerAndPhaseInfo();
     }
-    if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") checkVictory();
-
-    return true; // Indicar que la acción de fusión se completó
 }
 
-function isValidMove(unit, toR, toC, isPotentialMerge = false) {
-    // console.log(`[isValidMove ENTRY] unit: ${unit?.name}, to: (${toR},${toC}), isMerge: ${isPotentialMerge}, unit.hasMoved: ${unit?.hasMoved}, unit.currentMovement: ${unit?.currentMovement}`);
+function splitUnit(originalUnit, targetR, targetC) {
+    if (!originalUnit || !originalUnit.regiments || !gameState.preparingAction) return false;
+    const actionData = gameState.preparingAction;
+    const targetHexData = board[targetR]?.[targetC];
+    if (!targetHexData || targetHexData.unit) return false;
 
-    if (!unit) {
-        // console.log("[isValidMove EXIT] No unit provided.");
-        return false; 
-    }
+    const newUnitRegiments = actionData.newUnitRegiments;
+    const remainingOriginalRegiments = actionData.remainingOriginalRegiments;
+
+    originalUnit.regiments = remainingOriginalRegiments;
+    calculateRegimentStats(originalUnit);
+    originalUnit.currentHealth = originalUnit.regiments.reduce((s, r) => s + (r.health || 0), 0);
+    originalUnit.currentMovement = originalUnit.movement;
+
+    const newUnitData = {
+        id: `u${unitIdCounter++}`,
+        player: originalUnit.player,
+        name: `${getAbbreviatedName(newUnitRegiments[0].type)} (Div.)`, 
+        regiments: newUnitRegiments,
+        r: -1, c: -1, hasMoved: false, hasAttacked: false,
+        isSplit: true,
+        // (el resto de tus propiedades iniciales...)
+    };
     
-    // Condición 1: Si ya movió y NO es un intento de fusión (la fusión podría ser el único movimiento)
-    // O si no tiene puntos de movimiento Y NO es un intento de fusión
-    if (gameState.currentPhase === 'play') { // Estas restricciones solo aplican en la fase de juego
-        if (unit.hasMoved && !isPotentialMerge) { 
-            // console.log(`[isValidMove EXIT] ${unit.name} ya movió (hasMoved=${unit.hasMoved}) y no es intento de fusión.`);
-            return false; 
-        }
-        if ((unit.currentMovement || 0) <= 0 && !isPotentialMerge) { // Usar (unit.currentMovement || 0) por si es undefined
-            // console.log(`[isValidMove EXIT] ${unit.name} sin movimiento (currentMovement=${unit.currentMovement}) y no es intento de fusión.`);
-            return false;
-        }
+    calculateRegimentStats(newUnitData);
+    newUnitData.currentHealth = newUnitData.regiments.reduce((s, r) => s + (r.health || 0), 0);
+    newUnitData.currentMovement = newUnitData.movement; // Asignar el movimiento a la nueva unidad
+
+    placeFinalizedDivision(newUnitData, targetR, targetC);
+
+    if (UIManager) {
+        UIManager.updateUnitStrengthDisplay(originalUnit);
+        UIManager.showUnitContextualInfo(originalUnit, true);
     }
 
-    // Condición 3: Moverse al mismo hexágono
-    if (unit.r === toR && unit.c === toC) {
-        // console.log("[isValidMove EXIT] Mismo hex.");
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('unit_split');
+    }
+    logMessage(`División completada.`);
+    return true; 
+}
+
+function recalculateUnitHealth(unit) {
+    if (!unit || !unit.regiments) return;
+    const newTotalHealth = unit.regiments.reduce((sum, reg) => sum + (reg.health || 0), 0);
+    unit.currentHealth = newTotalHealth;
+    if (UIManager) UIManager.updateUnitStrengthDisplay(unit);
+}
+
+async function mergeUnits(mergingUnit, targetUnit) {
+    if (!mergingUnit || !targetUnit || mergingUnit.player !== targetUnit.player || mergingUnit.id === targetUnit.id) {
+        return false;
+    }
+    const isEmbarking = REGIMENT_TYPES[targetUnit.regiments[0]?.type]?.is_naval && !REGIMENT_TYPES[mergingUnit.regiments[0]?.type]?.is_naval;
+    const isLandMerge = !REGIMENT_TYPES[targetUnit.regiments[0]?.type]?.is_naval && !REGIMENT_TYPES[mergingUnit.regiments[0]?.type]?.is_naval;
+    if (!isEmbarking && !isLandMerge) {
+        logMessage("Esta combinación de unidades no se puede fusionar.", "warning");
+        return false;
+    }
+    const totalRegiments = (targetUnit.regiments?.length || 0) + (mergingUnit.regiments?.length || 0);
+    if (totalRegiments > MAX_REGIMENTS_PER_DIVISION) {
+        logMessage(`Límite de regimientos excedido.`, "warning");
         return false;
     }
 
-    const targetUnitOnHex = getUnitOnHex(toR, toC); // Asume que getUnitOnHex es accesible
-    // console.log(`[isValidMove DEBUG] Para ${unit.name} a (${toR},${toC}). isPotentialMerge: ${isPotentialMerge}. Unidad en destino: ${targetUnitOnHex?.name || 'Ninguna'}`);
+    // CORRECCIÓN: La confirmación ya se hizo en RequestMergeUnits antes de enviar la acción
+    // Por lo tanto, cuando esta función se ejecuta, ya está confirmado
+    // Eliminamos el window.confirm para evitar que aparezca en el anfitrión
+    
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('unit_merged');
+    }
+    if (mergingUnit.commander && !targetUnit.commander) {
+        targetUnit.commander = mergingUnit.commander;
+    }
+    const oldTargetHealth = targetUnit.currentHealth;
+    mergingUnit.regiments.forEach(reg => targetUnit.regiments.push(reg));
 
-    if (targetUnitOnHex) { // El hexágono destino está OCUPADO
-        if (isPotentialMerge && targetUnitOnHex.player === unit.player && targetUnitOnHex.id !== unit.id) {
-            // Es un intento de fusión con una unidad amiga diferente.
-            // Para la fusión, la unidad que se mueve DEBE PODER LLEGAR (tener movimiento).
-            if (gameState.currentPhase === 'play' && (unit.currentMovement || 0) <= 0) { 
-                // console.log(`[isValidMove DEBUG - MergePath] ${unit.name} no tiene movimiento para fusionar (currentMovement=${unit.currentMovement}).`);
-                return false;
-            }
-            // Llamar a getMovementCost pasando el flag isPotentialMerge
-            const cost = getMovementCost(unit, unit.r, unit.c, toR, toC, true); 
-            // console.log(`[isValidMove DEBUG - MergePath] Costo a (${toR},${toC}) para ${unit.name} es ${cost}. Mov actual: ${unit.currentMovement}`);
-            const canMoveToMerge = cost !== Infinity && cost <= (unit.currentMovement || 0);
-            // console.log(`[isValidMove EXIT - MergePath] Puede moverse para fusionar: ${canMoveToMerge}`);
-            return canMoveToMerge;
+    calculateRegimentStats(targetUnit);
+    // La salud se suma, sin exceder el nuevo máximo
+    targetUnit.currentHealth = Math.min(oldTargetHealth + mergingUnit.currentHealth, targetUnit.maxHealth);
+
+    // CORRECCIÓN CRÍTICA: Esperar a que handleUnitDestroyed complete la eliminación
+    // antes de continuar con la actualización de la UI y el broadcast del estado
+    await handleUnitDestroyed(mergingUnit, null);
+    
+    // <<==El movimiento actual se recarga ==>
+    targetUnit.hasMoved = false;
+    targetUnit.hasAttacked = false;
+    targetUnit.currentMovement = targetUnit.movement; // Se recarga el movimiento de la nueva mega-unidad
+
+    if (UIManager) {
+        UIManager.showUnitContextualInfo(targetUnit, true);
+        UIManager.renderAllUnitsFromData();
+    }
+
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('unitHasMerge');
+    }
+
+    logMessage(`Fusión completa.`, "success");
+    return true;
+}
+
+function prepareSplitOrDisembark(unit) {
+    if (!unit || unit.player !== gameState.currentPlayer) {
+        console.error("[Disembark/Split] Intento de actuar sobre unidad inválida.");
+        return;
+    }
+    
+    // Si la unidad ya ha actuado, no puede ni dividir ni desembarcar
+    if (unit.hasMoved || unit.hasAttacked) {
+        logMessage("Esta unidad ya ha actuado este turno.");
+        return;
+    }
+
+    // Comprobamos la composición de la unidad
+    const hasNavalRegiments = unit.regiments.some(reg => REGIMENT_TYPES[reg.type]?.is_naval);
+    const hasLandRegiments = unit.regiments.some(reg => !REGIMENT_TYPES[reg.type]?.is_naval);
+
+    // <<== INICIO: LÓGICA DE DECISIÓN CORREGIDA ==>>
+
+    // CASO 1: Es una unidad mixta (transporte con tropas). DEBE desembarcar/dividir.
+    if (hasNavalRegiments && hasLandRegiments) {
+        console.log(`[Action Prep] Unidad mixta detectada (${unit.name}). Preparando para desembarco/división.`);
+        // Abre el modal avanzado, que ahora podrá manejar la división de tropas navales y terrestres.
+        if (typeof openAdvancedSplitUnitModal === "function") {
+           openAdvancedSplitUnitModal(unit);
         } else {
-            // console.log(`[isValidMove EXIT] Destino ocupado y no es fusión válida (Enemigo: ${targetUnitOnHex.player !== unit.player}, MismaUnidad: ${targetUnitOnHex.id === unit.id}, NoEsMergeFlag: ${!isPotentialMerge})`);
-            return false; // Ocupado por enemigo, o por la misma unidad, o no es intento de fusión a casilla ocupada
+           console.error("Error: La función openAdvancedSplitUnitModal no está definida.");
         }
-    } else { // El hexágono destino está VACÍO
-        if (isPotentialMerge) {
-            // No se puede "fusionar" con un hexágono vacío.
-            // console.log("[isValidMove EXIT] Intento de fusionar con hex VACÍO, no permitido.");
-            return false; 
+    } 
+    // CASO 2: Es una unidad de tierra con múltiples regimientos. Puede dividirse en tierra.
+    else if (!hasNavalRegiments && unit.regiments.length > 1) {
+        console.log(`[Action Prep] División terrestre detectada (${unit.name}).`);
+        if (typeof openAdvancedSplitUnitModal === "function") {
+           openAdvancedSplitUnitModal(unit);
+        } else {
+           console.error("Error: La función openAdvancedSplitUnitModal no está definida.");
         }
-        // Movimiento normal a hex vacío
-        if (gameState.currentPhase === 'play' && (unit.currentMovement || 0) <= 0) {
-            // console.log(`[isValidMove DEBUG - EmptyHexPath] ${unit.name} no tiene movimiento para moverse a hex vacío (currentMovement=${unit.currentMovement}).`);
-            return false;
+    }
+    // CASO 3: Es una flota naval pura o una unidad terrestre de un solo regimiento.
+    else {
+        logMessage("Esta unidad no se puede dividir.");
+    }
+}
+
+let _currentPreparingAction = null; 
+
+function cancelPreparingAction() {
+    // Si realmente hay una acción preparada (y no está en mitad de la ejecución), la cancelamos.
+    if (gameState.preparingAction) {
+        console.log("[Acción Cancelada] Limpiando estado 'preparingAction'.");
+        gameState.preparingAction = null;
+        if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) {
+            UIManager.clearHighlights();
         }
-        // Llamar a getMovementCost pasando el flag isPotentialMerge (que será false aquí)
-        const cost = getMovementCost(unit, unit.r, unit.c, toR, toC, false); 
-        // console.log(`[isValidMove DEBUG - EmptyHexPath] Costo a (${toR},${toC}) para ${unit.name} es ${cost}. Mov actual: ${unit.currentMovement}`);
-        const canMoveToEmpty = cost !== Infinity && cost <= (unit.currentMovement || 0);
-        // console.log(`[isValidMove EXIT - EmptyHexPath] Puede moverse a hex vacío: ${canMoveToEmpty}`);
-        return canMoveToEmpty;
     }
 }
 
 function handleActionWithSelectedUnit(r_target, c_target, clickedUnitOnTargetHex) {
+    // Log de Entrada (se mantiene sin cambios)
+    console.log(`--- DENTRO DE handleActionWithSelectedUnit ---`);
+    console.log(`Objetivo del Clic: ${clickedUnitOnTargetHex ? clickedUnitOnTargetHex.name : 'Casilla Vacía'} en (${r_target},${c_target})`);
+
     if (!selectedUnit) {
-        console.error("CRITICAL: handleActionWithSelectedUnit sin selectedUnit.");
-        return false; 
+        console.error("[handleAction] ERROR FATAL: Se llamó a la función pero 'selectedUnit' es nulo.");
+        return false;
     }
 
-    // CASO 1: Clic en la misma unidad seleccionada
-    if (clickedUnitOnTargetHex && clickedUnitOnTargetHex.id === selectedUnit.id) {
-        if (gameState.preparingAction && gameState.preparingAction.unitId === selectedUnit.id) {
-            if (typeof cancelPreparingAction === "function") cancelPreparingAction();
-            if (typeof UIManager !== 'undefined' && UIManager.showUnitContextualInfo) UIManager.showUnitContextualInfo(selectedUnit, true);
-        }
-        return false; 
-    }
-
-    // CASO 2: Hay una acción preparándose (movimiento o ataque)
+    // --- MANEJO DE ACCIÓN PREPARADA (AQUÍ ESTÁ LA CORRECCIÓN) ---
     if (gameState.preparingAction && gameState.preparingAction.unitId === selectedUnit.id) {
-        if (gameState.preparingAction.type === "move") {
-            // Para un movimiento preparado a un hex vacío
-            if (!clickedUnitOnTargetHex && isValidMove(selectedUnit, r_target, c_target, false)) { // false para isPotentialMerge
-                if (typeof moveUnit === "function") moveUnit(selectedUnit, r_target, c_target);
-                if (typeof cancelPreparingAction === "function") cancelPreparingAction();
+        console.log(`[handleAction] Detectada acción preparada: ${gameState.preparingAction.type}`);
+        
+        if (gameState.preparingAction.type === 'split_unit') {
+            // ANTES (PROBLEMÁTICO):
+            // if (splitUnit(selectedUnit, r_target, c_target)) {
+            
+            // DESPUÉS (CORREGIDO):
+            if (isNetworkGame()) {
+                // En partidas de red, usar el sistema de red
+                RequestSplitUnit(selectedUnit, r_target, c_target);
+                success = true;
+                console.log("[handleAction] División enviada al anfitrión. Limpiando acción preparada.");
+                cancelPreparingAction();
                 return true;
-            } else if (clickedUnitOnTargetHex && clickedUnitOnTargetHex.player === selectedUnit.player) {
-                // Si el modo mover está activo y se hace clic en otra unidad amiga -> Intento de Fusión
-                console.log(`[handleAction PREPARED_MOVE] Intento de FUSIÓN (desde modo mover): ${selectedUnit.name} sobre ${clickedUnitOnTargetHex.name}`);
-                if (isValidMove(selectedUnit, r_target, c_target, true)) { // true para isPotentialMerge
-                    if (typeof mergeUnits === "function") mergeUnits(selectedUnit, clickedUnitOnTargetHex); else console.error("Función mergeUnits no definida.");
-                    if (typeof cancelPreparingAction === "function") cancelPreparingAction();
-                    return true; 
-                } else {
-                    logMessage("No se puede mover allí para fusionar.");
+            } else {
+                // En partidas locales, usar el método directo
+                if (splitUnit(selectedUnit, r_target, c_target)) {
+                    success = true;
+                    console.log("[handleAction] División exitosa. Finalizando y limpiando acción preparada.");
+                    cancelPreparingAction();
+                    return true;
                 }
-            } else {
-                logMessage("Movimiento preparado inválido.");
             }
-            if (typeof cancelPreparingAction === "function") cancelPreparingAction();
-            if (typeof UIManager !== 'undefined' && UIManager.showUnitContextualInfo) UIManager.showUnitContextualInfo(selectedUnit, true);
-            return false;
-
-        } else if (gameState.preparingAction.type === "attack") {
-            if (clickedUnitOnTargetHex && clickedUnitOnTargetHex.player !== selectedUnit.player && isValidAttack(selectedUnit, clickedUnitOnTargetHex)) {
-                if (typeof attackUnit === "function") attackUnit(selectedUnit, clickedUnitOnTargetHex);
-                if (typeof cancelPreparingAction === "function") cancelPreparingAction();
-                return true;
-            } else {
-                logMessage("Objetivo de ataque preparado inválido.");
-            }
-            if (typeof cancelPreparingAction === "function") cancelPreparingAction();
-            if (typeof UIManager !== 'undefined' && UIManager.showUnitContextualInfo) UIManager.showUnitContextualInfo(selectedUnit, true);
-            return false;
         }
+        
+        // Si la acción preparada no se pudo completar (p.ej. clic en casilla inválida),
+        // devolvemos false, pero NO limpiamos la acción, permitiendo al jugador intentarlo de nuevo en otra casilla.
+        return false;
     }
 
-    // CASO 3: No hay acción preparándose (clic directo)
-    if (clickedUnitOnTargetHex) { // Clic en un hexágono CON OTRA UNIDAD
-        if (clickedUnitOnTargetHex.player === selectedUnit.player && clickedUnitOnTargetHex.id !== selectedUnit.id) {
-            // Clic en OTRA UNIDAD AMIGA: Intento de FUSIÓN
-            console.log(`[handleAction DIRECT_CLICK] Intento de FUSIÓN: ${selectedUnit.name} sobre ${clickedUnitOnTargetHex.name}`);
-            if (isValidMove(selectedUnit, r_target, c_target, true)) { // true para isPotentialMerge
-                if (typeof mergeUnits === "function") {
-                    mergeUnits(selectedUnit, clickedUnitOnTargetHex);
-                    return true; 
-                } else { 
-                    console.error("Función mergeUnits no definida."); 
-                    return false; 
-                }
-            } else {
-                logMessage(`No se puede alcanzar a ${clickedUnitOnTargetHex.name} para fusionar.`);
-                // No llamar a selectUnit aquí, onHexClick lo manejará si esta función retorna false.
-                return false; 
-            }
-        } else if (clickedUnitOnTargetHex.player !== selectedUnit.player) { // Clic en unidad ENEMIGA
-            console.log(`[handleAction DIRECT_CLICK] Intento de ATAQUE: ${selectedUnit.name} sobre ${clickedUnitOnTargetHex.name}`);
+    // --- MANEJO DE CLIC DIRECTO ---
+    
+    // CASO 1: Se hizo clic sobre una unidad.
+    if (clickedUnitOnTargetHex) {
+        
+        // Subcaso 1.1: Es una unidad ENEMIGA.
+        if (clickedUnitOnTargetHex.player !== selectedUnit.player) {
+            console.log(`[handleAction] Clic en ENEMIGO. Verificando ataque...`);
             if (isValidAttack(selectedUnit, clickedUnitOnTargetHex)) {
-                if (typeof attackUnit === "function") { 
-                    attackUnit(selectedUnit, clickedUnitOnTargetHex); 
-                    return true; 
-                } else { console.error("Función attackUnit no definida."); return false;}
+                console.log(`[handleAction] ¡ATAQUE VÁLIDO! Iniciando RequestAttackUnit...`);
+                RequestAttackUnit(selectedUnit, clickedUnitOnTargetHex);
+                return true; // <<< DEVUELVE TRUE
             } else {
-                if (typeof logMessage === "function") logMessage(`${selectedUnit.name} no puede atacar a ${clickedUnitOnTargetHex.name}.`);
+                logMessage(`${selectedUnit.name} no puede atacar a ${clickedUnitOnTargetHex.name}.`);
             }
-            return false; 
         }
-    } else { // Clic en hexágono VACÍO
-        console.log(`[handleAction DIRECT_CLICK] Intento de MOVIMIENTO de ${selectedUnit.name} a hex vacío (${r_target},${c_target})`);
-        if (isValidMove(selectedUnit, r_target, c_target, false)) { // false para isPotentialMerge (movimiento normal)
-            if (typeof moveUnit === "function") { 
-                moveUnit(selectedUnit, r_target, c_target); 
-                return true; 
-            } else { console.error("Función moveUnit no definida."); return false;}
+        // Subcaso 1.2: Es una unidad AMIGA.
+        else {
+            if (clickedUnitOnTargetHex.id === selectedUnit.id) return false;
+            
+            console.log(`[handleAction] Clic en ALIADO. Verificando fusión...`);
+            if (isValidMove(selectedUnit, r_target, c_target, true)) {
+                console.log(`[handleAction] ¡FUSIÓN VÁLIDA! Iniciando RequestMergeUnits...`);
+                RequestMergeUnits(selectedUnit, clickedUnitOnTargetHex);
+                return true; // <<< DEVUELVE TRUE
+            }
         }
-        // Si el movimiento a hex vacío no es válido, no hacer nada aquí.
-        // onHexClick podría deseleccionar o mostrar info del hex.
-        return false; 
     }
-    return false; 
+    // CASO 2: Se hizo clic sobre una casilla VACÍA.
+    else {
+        console.log(`[handleAction] Clic en casilla VACÍA. Verificando movimiento...`);
+        if (isValidMove(selectedUnit, r_target, c_target, false)) {
+         // Ahora decidimos qué función llamar basándonos en si es una partida en red o no.   
+            if (isNetworkGame()) {
+                console.log(`[handleAction] ¡MOVIMIENTO VÁLIDO (RED)! Iniciando RequestMoveUnit...`);
+                RequestMoveUnit(selectedUnit, r_target, c_target);
+            } else {
+                console.log(`[handleAction] ¡MOVIMIENTO VÁLIDO (LOCAL)! Iniciando moveUnit...`);
+                _executeMoveUnit(selectedUnit, r_target, c_target);
+            }
+            return true;
+        }
+    }
+    
+    // Si ninguna de las condiciones anteriores se cumplió, entonces sí, ninguna acción fue posible.
+    console.log(`[handleAction] Ninguna acción válida se pudo iniciar. Devolviendo 'false'.`);
+    return false;
 }
 
 function selectUnit(unit) {
     console.log(`[DEBUG selectUnit] INICIO - Intentando seleccionar: ${unit?.name || 'unidad nula'}`);
+
     if (!unit) {
         console.warn("[selectUnit] Intento de seleccionar unidad nula.");
         if (typeof deselectUnit === "function") deselectUnit();
         return;
     }
 
+    selectedUnit = unit;
+    
     if (gameState.currentPhase === 'play' && unit.player !== gameState.currentPlayer) {
         console.log(`[selectUnit] No se puede tomar control de ${unit.name} (Jugador ${unit.player}).`);
         if (typeof deselectUnit === "function") deselectUnit();
-        return;
+        return; // Mostramos su info pero no la seleccionamos como 'activa'
     }
 
-    if (selectedUnit && selectedUnit.id === unit.id) {
-        // Si ya está seleccionada, solo refrescamos los highlights por si acaso.
+    if (selectedUnit && selectedUnit.id === unit.id && gameState.preparingAction?.type === 'split_unit') {
+        console.log(`[DEBUG selectUnit] Clic en la misma unidad (${unit.name}) con acción de división preparada. No se hace nada.`);
         if (typeof highlightPossibleActions === "function") highlightPossibleActions(selectedUnit);
-        return; // No es necesario hacer más.
+        return; 
     }
-
+    
     if (selectedUnit) {
         if (typeof deselectUnit === "function") deselectUnit();
     }
 
     selectedUnit = unit;
     console.log(`[selectUnit] ${selectedUnit.name} establecida como selectedUnit.`);
-
+    
     if (gameState) {
         gameState.selectedHexR = unit.r;
         gameState.selectedHexC = unit.c;
@@ -636,455 +447,1211 @@ function selectUnit(unit) {
         if (gameState) { gameState.selectedHexR = -1; gameState.selectedHexC = -1; }
         return;
     }
+    
+    logMessage(`${unit.name} (J${unit.player}) seleccionada.`);
 
-    if (typeof logMessage === "function") logMessage(`${unit.name} (J${unit.player}) seleccionada.`);
+    // >> LÓGICA AÑADIDA/MODIFICADA PARA UNIDADES "ZOMBIS" <<
+    const isBroken = unit.morale <= 0;
+    const canAct = gameState.currentPhase !== 'play' || (!unit.hasMoved && !unit.hasAttacked);
 
-    // Comprobar si puede actuar y resaltar acciones posibles.
-    const canStillAct = gameState.currentPhase !== 'play' || (!unit.hasMoved || !unit.hasAttacked);
-    if (canStillAct) {
-        if (typeof highlightPossibleActions === "function") highlightPossibleActions(unit);
-    } else {
-        if (typeof logMessage === "function") logMessage(`${unit.name} ya ha actuado este turno.`);
-        if (typeof clearHighlights === "function") clearHighlights();
+    // Siempre mostramos la información de la unidad, esté rota o no.
+    if (typeof UIManager !== 'undefined' && UIManager.showUnitContextualInfo) {
+        UIManager.showUnitContextualInfo(unit, unit.player === gameState.currentPlayer);
     }
     
-    // YA NO SE LLAMA A UIManager.showUnitContextualInfo DESDE AQUÍ.
-    // onHexClick se encargará de esto DESPUÉS de que selectUnit termine.
+    if (isBroken) {
+        // Si la unidad está rota, no mostramos ninguna acción posible.
+        if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) {
+            UIManager.clearHighlights();
+        }
+        logMessage(`${unit.name} tiene la moral rota y no puede actuar este turno.`);
+    } else if (canAct) {
+        // Si no está rota Y puede actuar, mostramos las acciones posibles.
+        if (typeof UIManager !== 'undefined' && UIManager.highlightPossibleActions) {
+            UIManager.highlightPossibleActions(unit);
+        }
+    } else {
+        // Si no está rota pero ya actuó.
+        logMessage(`${unit.name} ya ha actuado este turno.`);
+        if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) {
+            UIManager.clearHighlights();
+        }
+    }
+
     console.log(`[DEBUG selectUnit] FIN - selectedUnit ahora es: ${selectedUnit?.name}`);
 }
 
 function deselectUnit() {
-    // ... (función deselectUnit como estaba) ...
     if (selectedUnit && selectedUnit.element) {
         selectedUnit.element.classList.remove('selected-unit');
     }
     selectedUnit = null;
-    if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-    else if (typeof clearHighlights === "function") clearHighlights();
-}
-
-function highlightPossibleActions(unit) {
-    // ... (función highlightPossibleActions como estaba, debe usar isValidAttack e isValidMove) ...
-    if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-    else if (typeof clearHighlights === "function") clearHighlights();
-    if (!unit || !board || board.length === 0) return;
-    for (let r_idx = 0; r_idx < board.length; r_idx++) {
-        for (let c_idx = 0; c_idx < board[0].length; c_idx++) {
-            const hexData = board[r_idx]?.[c_idx];
-            if (!hexData || !hexData.element) continue;
-            if (gameState.currentPhase === "play" && hexData.visibility && typeof hexData.visibility === 'object' && hexData.visibility[`player${gameState.currentPlayer}`] === 'hidden') continue;
-            if (gameState.currentPhase === 'play' && !unit.hasMoved && unit.currentMovement > 0 && isValidMove(unit, r_idx, c_idx)) {
-                 hexData.element.classList.add('highlight-move');
-            }
-            const targetUnitOnHex = getUnitOnHex(r_idx, c_idx);
-            if (gameState.currentPhase === 'play' && !unit.hasAttacked && targetUnitOnHex && targetUnitOnHex.player !== unit.player && isValidAttack(unit, targetUnitOnHex)) {
-                hexData.element.classList.add('highlight-attack');
-            }
-        }
-    }
-}
-
-function clearHighlights() {
-    // ... (función clearHighlights como estaba) ...
-    document.querySelectorAll('.hex.highlight-move, .hex.highlight-attack, .hex.highlight-build, .hex.highlight-place').forEach(h => {
-        h.classList.remove('highlight-move', 'highlight-attack', 'highlight-build', 'highlight-place');
-    });
-}
-
-// ---------------------------------------------------------------------------------
-// LÓGICA DE MOVIMIENTO
-// ---------------------------------------------------------------------------------
-// En unit_Actions.js
-
-function getMovementCost(unit, r_start, c_start, r_target, c_target, isPotentialMerge = false) { // Añadido isPotentialMerge
-    if (!unit) { return Infinity; }
-    if (r_start === r_target && c_start === c_target) return 0;
-    // No necesitamos chequear unit.currentMovement aquí, isValidMove ya lo hace si es necesario
-    // if (unit.currentMovement <= 0) return Infinity; // Quitado para que solo calcule el costo de la ruta
-
-    let queue = [{ r: r_start, c: c_start, cost: 0, path: [`${r_start},${c_start}`] }]; 
-    let visited = new Set();
-    visited.add(`${r_start},${c_start}`);
     
-    // El límite de búsqueda debe ser suficiente para el movimiento máximo de cualquier unidad
-    // No lo limites por unit.currentMovement aquí, ya que solo queremos el costo de la ruta.
-    const maxSearchDepth = Math.max(unit.movement || 1, 15); // Un límite razonable, o el movimiento base de la unidad
-    let iterations = 0;
-    const maxIterations = maxSearchDepth * BOARD_ROWS * BOARD_COLS / 2; // Un límite generoso de iteraciones
+    // --- ¡CORRECCIÓN CLAVE! ---
+    // Si deseleccionas una unidad, cualquier acción que estuvieras preparando
+    // con ella debe ser cancelada.
+    cancelPreparingAction(); 
+    // --- FIN DE LA CORRECCIÓN ---
+}
 
-    // console.log(`[getMovementCost ENTRY] De (${r_start},${c_start}) a (${r_target},${c_target}), Merge: ${isPotentialMerge}, MaxDepth: ${maxSearchDepth}`);
+function isValidMove(unit, toR, toC, isPotentialMerge = false) {
+    if (!unit) return false;
+    if (gameState.currentPhase === 'play' && unit.hasMoved) return false;
+    if ((unit.currentMovement || 0) <= 0 && !isPotentialMerge) return false;
+    if (unit.r === toR && unit.c === toC) return false;
 
-    while (queue.length > 0 && iterations < maxIterations) { 
-        iterations++;
-        let current = queue.shift();
+    const targetHexData = board[toR]?.[toC];
+    if (!targetHexData) return false;
+    
+    const unitRegimentData = REGIMENT_TYPES[unit.regiments[0]?.type];
+    const targetUnitOnHex = getUnitOnHex(toR, toC);
 
-        // No permitir que el costo exceda el movimiento máximo de la unidad (optimización)
-        // Pero solo si no es un movimiento de fusión donde el costo podría ser irrelevante si la unidad no se "mueve" realmente
-        // if (current.cost >= maxSearchDepth && !isPotentialMerge) continue; // Comentado, isValidMove se encarga de esto
+    // <<== INICIO LÓGICA DE VALIDACIÓN CORREGIDA ==>>
 
-        let neighbors = getHexNeighbors(current.r, current.c);
-        for (const neighbor of neighbors) {
-            const costToEnterNeighbor = current.cost + 1; // Asumimos costo 1 por hexágono (puedes añadir costos de terreno aquí)
+    // Regla #1: Unidades navales
+    if (unitRegimentData?.is_naval) {
+        // Solo pueden moverse a casillas de agua vacías
+        if (targetHexData.terrain !== 'water' || targetUnitOnHex) {
+            return false;
+        }
+    } 
+    // Regla #2: Unidades terrestres
+    else {
+        // Sub-regla 2.1: ¿Es para fusionar/embarcar?
+        if (isPotentialMerge) {
+            if (!targetUnitOnHex || targetUnitOnHex.player !== unit.player) return false;
+            // Permite movimiento si el objetivo es un barco en agua O una unidad terrestre en tierra
+            const targetIsNaval = REGIMENT_TYPES[targetUnitOnHex.regiments[0]?.type]?.is_naval;
+            if (targetIsNaval && targetHexData.terrain !== 'water') return false; // Barco debe estar en agua
+            if (!targetIsNaval && targetHexData.terrain === 'water') return false; // Unidad de tierra debe estar en tierra
+        } 
+        // Sub-regla 2.2: ¿Es un movimiento normal a una casilla vacía?
+        else {
+            if (targetUnitOnHex) return false; // No se puede mover a casillas vacías si están ocupadas
 
-            // ¿Hemos llegado al objetivo?
-            if (neighbor.r === r_target && neighbor.c === c_target) {
-                const unitAtTarget = getUnitOnHex(neighbor.r, neighbor.c);
-                if (isPotentialMerge) {
-                    // Si es fusión, podemos "entrar" a la casilla aunque esté ocupada por un amigo.
-                    // No necesitamos verificar si unitAtTarget es el amigo específico aquí, isValidMove lo hará.
-                    // Simplemente devolvemos el costo para llegar a la casilla.
-                    // console.log(`[getMovementCost EXIT - MergeTargetFound] Costo a hex de fusión: ${costToEnterNeighbor}`);
-                    return costToEnterNeighbor;
-                } else if (!unitAtTarget) {
-                    // Si es movimiento normal y el objetivo está vacío.
-                    // console.log(`[getMovementCost EXIT - EmptyTargetFound] Costo a hex vacío: ${costToEnterNeighbor}`);
-                    return costToEnterNeighbor;
-                }
-                // Si es movimiento normal y el objetivo está ocupado, no es una ruta válida (esta rama no debería alcanzarse si isValidMove funciona).
-                // console.log(`[getMovementCost] Objetivo (${r_target},${c_target}) alcanzado pero OCUPADO y NO es fusión.`);
-                continue; 
+            const unitCategory = unitRegimentData.category;
+            const isImpassable = (IMPASSABLE_TERRAIN_BY_UNIT_CATEGORY.all_land.includes(targetHexData.terrain)) ||
+                                 (IMPASSABLE_TERRAIN_BY_UNIT_CATEGORY[unitCategory] || []).includes(targetHexData.terrain);
+            if (isImpassable) return false;
+        }
+    }
+    // <<== FIN LÓGICA DE VALIDACIÓN CORREGIDA ==>>
+    
+    // Si pasó todas las validaciones, comprobar coste
+    const cost = getMovementCost(unit, unit.r, unit.c, toR, toC, isPotentialMerge);
+    return cost !== Infinity && cost <= (unit.currentMovement || 0);
+}
+
+function getMovementCost(unit, r_start, c_start, r_target, c_target, isPotentialMerge = false) {
+        if (!unit) return Infinity;
+        if (r_start === r_target && c_start === c_target) return 0;
+
+        const unitRegimentData = REGIMENT_TYPES[unit.regiments[0]?.type];
+        if (!unitRegimentData) return Infinity; // No se puede mover si no hay datos del regimiento
+
+        // Se detecta si la unidad que se mueve tiene la habilidad.
+        const hasJumpAbility = unit.regiments.some(reg => 
+            REGIMENT_TYPES[reg.type]?.abilities?.includes("Jump")
+        );
+
+        let queue = [{ r: r_start, c: c_start, cost: 0 }];
+        let visited = new Map([[`${r_start},${c_start}`, 0]]);
+
+        while (queue.length > 0) {
+            // No es necesario ordenar la cola para un BFS simple de coste, procesamos en orden de llegada.
+            let current = queue.shift();
+            
+            // Condición de éxito: hemos llegado al hexágono de destino
+            if (current.r === r_target && current.c === c_target) {
+                return current.cost;
+            }
+            
+            // No buscar caminos absurdamente largos
+            if (current.cost > (unit.movement || 1) * 3) {
+                continue;
             }
 
-            // Si no es el objetivo, explorar más
-            const visitedKey = `${neighbor.r},${neighbor.c}`;
-            if (!visited.has(visitedKey)) {
+            let neighbors = getHexNeighbors(current.r, current.c);
+            for (const neighbor of neighbors) {
+                const neighborHexData = board[neighbor.r]?.[neighbor.c];
+                if (!neighborHexData) continue;
+                
+                const neighborKey = `${neighbor.r},${neighbor.c}`;
                 const unitAtNeighbor = getUnitOnHex(neighbor.r, neighbor.c);
-                // Solo podemos pasar por hexágonos vacíos o, si es una fusión, el hexágono final puede estar ocupado por un amigo.
-                // Pero los hexágonos INTERMEDIOS de la ruta deben estar vacíos.
-                if (!unitAtNeighbor) { // Los hexágonos intermedios deben estar vacíos
-                    visited.add(visitedKey);
-                    let newPath = [...current.path, visitedKey];
-                    queue.push({ r: neighbor.r, c: neighbor.c, cost: costToEnterNeighbor, path: newPath });
+                
+                // --- INICIO LÓGICA DE VALIDEZ DE MOVIMIENTO ---
+                let canPassThrough = false;
+
+                // CASO 1: Movimiento a un hexágono vacío.
+                if (!unitAtNeighbor) {
+                    // Si la casilla está vacía, se verifican las reglas normales de terreno.
+                    if (unitRegimentData.is_naval) {
+                        canPassThrough = neighborHexData.terrain === 'water';
+                    } else {
+                        const unitCategory = unitRegimentData.category;
+                        const isImpassable = (IMPASSABLE_TERRAIN_BY_UNIT_CATEGORY.all_land.includes(neighborHexData.terrain)) ||
+                                            (IMPASSABLE_TERRAIN_BY_UNIT_CATEGORY[unitCategory] || []).includes(neighborHexData.terrain);
+                        canPassThrough = !isImpassable;
+                    }
+                } 
+                // Si la casilla está ocupada, se comprueba si es un aliado y si tenemos "Jump".
+                else if (unitAtNeighbor.player === unit.player && hasJumpAbility) {
+                    canPassThrough = true; // Se puede pasar, pero no terminar el movimiento.
+                }
+                else if (isPotentialMerge && neighbor.r === r_target && neighbor.c === c_target) {
+                    // Solo permitimos entrar si el vecino es el hexágono exacto de nuestro objetivo de fusión.
+                    canPassThrough = true;
+                }
+                
+                // Un movimiento NUNCA puede terminar en una casilla ocupada, aunque se pueda pasar por ella.
+                if (isPotentialMerge === false && neighbor.r === r_target && neighbor.c === c_target && unitAtNeighbor) {
+                    canPassThrough = false;
+                }
+
+                if (canPassThrough) { 
+                    let moveCost = 1.0; 
+
+                    // 1. PRIORIDAD MÁXIMA: Comprobar si hay una ESTRUCTURA y no es una unidad naval.
+                    if (neighborHexData.structure && !unitRegimentData.is_naval) {
+                        const structureData = STRUCTURE_TYPES[neighborHexData.structure];
+                        // Si la estructura define un coste de movimiento, lo usamos.
+                        if (structureData && typeof structureData.movementCost === 'number') {
+                            moveCost = structureData.movementCost;
+                        }
+                    } 
+                    // 2. SI NO HAY ESTRUCTURA: Usamos el coste del TERRENO.
+                    else if (TERRAIN_TYPES[neighborHexData.terrain]) {
+                        moveCost = TERRAIN_TYPES[neighborHexData.terrain].movementCostMultiplier;
+                    }
+                    
+                    const newCost = current.cost + moveCost;
+
+                    // La validación de coste ahora debe usar el movimiento TOTAL, no el actual, para el pathfinding.
+                    if ((!visited.has(neighborKey) || newCost < visited.get(neighborKey)) && newCost <= (unit.movement || 0) * 2 ) { 
+                        visited.set(neighborKey, newCost);
+                        queue.push({ r: neighbor.r, c: neighbor.c, cost: newCost });
+                    }
                 }
             }
         }
-    }
-    // console.log(`[getMovementCost EXIT] No se encontró ruta válida. Iteraciones: ${iterations}`);
-    return Infinity;
+
+        // Si la cola se agota y no se encontró el destino, es inalcanzable.
+        return Infinity;
 }
 
 async function moveUnit(unit, toR, toC) {
-    // ... (función moveUnit como estaba, asegurando que actualiza hasMoved y currentMovement) ...
+    const isMyTurn = gameState.currentPlayer === gameState.myPlayerNumber;
+
+    if (isNetworkGame()) {
+        console.error("Llamada inválida a moveUnit() en juego de red. Usa RequestMoveUnit() en su lugar.");
+        return;
+    }
+
+    // --- EL CÓDIGO ORIGINAL SE EJECUTA SOLO PARA PARTIDAS LOCALES ---
     const fromR = unit.r;
     const fromC = unit.c;
+    const targetHexData = board[toR]?.[toC];
 
+    // Guardar estado para la función "deshacer"
     if (unit.player === gameState.currentPlayer) {
         unit.lastMove = {
             fromR: fromR,
             fromC: fromC,
-            initialCurrentMovement: unit.currentMovement, // Registrar el movimiento antes de gastar
-            initialHasMoved: unit.hasMoved,              // Registrar el estado de 'hasMoved'
-            initialHasAttacked: unit.hasAttacked         // Registrar el estado de 'hasAttacked'
+            initialCurrentMovement: unit.currentMovement, 
+            initialHasMoved: unit.hasMoved,              
+            initialHasAttacked: unit.hasAttacked,         
+            movedToHexOriginalOwner: targetHexData ? targetHexData.owner : null 
         };
-        console.log(`[Undo] Registrando lastMove para ${unit.name}: (${fromR},${fromC})`);
     }
     
-    const costOfThisMove = getMovementCost(unit, fromR, fromC, toR, toC);
-    // console.log(`[moveUnit] ${unit.name} de (${fromR},${fromC}) a (${toR},${toC}). Costo:${costOfThisMove}. Mov antes:${unit.currentMovement}, moved:${unit.hasMoved}`);
-    if (costOfThisMove === Infinity || costOfThisMove > unit.currentMovement || (gameState.currentPhase === 'play' && unit.hasMoved) || unit.currentMovement <= 0) {
-        console.error(`[moveUnit] MOVIMIENTO INVÁLIDO (CHEQUEO ROBUSTO) para ${unit.name}.`);
-        if (typeof logMessage === "function") logMessage("Movimiento inválido (interno).");
-        if (selectedUnit && selectedUnit.id === unit.id && typeof highlightPossibleActions === "function") highlightPossibleActions(unit);
-        return;
+    let costOfThisMove = getMovementCost(unit, fromR, fromC, toR, toC);
+    if (costOfThisMove === Infinity) return;
+
+    // Quitar la unidad del hexágono original
+    if (board[fromR]?.[fromC]) {
+        board[fromR][fromC].unit = null;
+        renderSingleHexVisuals(fromR, fromC);
     }
-    if (board[fromR]?.[fromC]) board[fromR][fromC].unit = null;
-    if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(fromR, fromC);
+    
+    // Mover la unidad al nuevo hexágono
     unit.r = toR;
     unit.c = toC;
     unit.currentMovement -= costOfThisMove;
-    if (gameState.currentPhase === 'play') { unit.hasMoved = true; }
-    // console.log(`   L-> DESPUÉS ${unit.name}: mov=${unit.currentMovement}, moved=${unit.hasMoved}`);
-    const targetHexData = board[toR]?.[toC];
+    unit.hasMoved = true;
+    
     if (targetHexData) {
         targetHexData.unit = unit;
-        if (targetHexData.owner !== unit.player) { 
-            targetHexData.owner = unit.player;
+
+        // <<== SOLUCIÓN PROBLEMA 1 (Parte A): CAPTURA DE HEXÁGONO NEUTRAL ==>>
+        const originalOwner = targetHexData.owner;
+        const movingPlayer = unit.player;
+
+        // Si la casilla era Neutral, la capturas inmediatamente.
+        if (originalOwner === null) {
+            targetHexData.owner = movingPlayer;
+            // Inicializar estabilidad y nacionalidad a 1.
+            targetHexData.estabilidad = 1;
+            targetHexData.nacionalidad = { 1: 0, 2: 0 }; // Reiniciar ambas
+            targetHexData.nacionalidad[movingPlayer] = 1; // Poner la tuya a 1
+
+            logMessage(`¡Has ocupado un territorio neutral en (${toR}, ${toC})!`);
+
             const city = gameState.cities.find(ci => ci.r === toR && ci.c === toC);
-            if (city && city.owner !== unit.player) {
-                city.owner = unit.player;
-                if (typeof logMessage === "function") logMessage(`¡Ciudad ${city.name} capturada por Jugador ${unit.player}!`);
-                if (typeof UIManager !== 'undefined' && UIManager.updateCityInfo) UIManager.updateCityInfo(city);
+            if (city && city.owner === null) {
+                city.owner = movingPlayer;
+                logMessage(`¡La ciudad neutral '${city.name}' se une a tu imperio!`);
+            }
+            renderSingleHexVisuals(toR, toC);
+
+            if (typeof Chronicle !== 'undefined') {
+                Chronicle.logEvent('conquest', { unit: unit, toR: toR, toC: toC });
             }
         }
-        if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(toR, toC);
+
     } else { 
         console.error(`[moveUnit] Error crítico: Hex destino (${toR},${toC}) no encontrado.`);
-        unit.r = fromR; unit.c = fromC; unit.currentMovement += costOfThisMove; 
-        if (gameState.currentPhase === 'play') unit.hasMoved = false; 
-        if (board[fromR]?.[fromC]) board[fromR][fromC].unit = unit; 
-        if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(fromR, fromC); 
-        return; 
+        unit.r = fromR; unit.c = fromC; unit.currentMovement += costOfThisMove; unit.hasMoved = false;
+        if (board[fromR]?.[fromC]) board[fromR][fromC].unit = unit;
+        renderSingleHexVisuals(fromR, fromC); 
+        return;
     }
-    if (typeof positionUnitElement === "function") positionUnitElement(unit);
-    if (typeof logMessage === "function") logMessage(`${unit.name} movida. Mov. restante: ${unit.currentMovement}.`);
-    if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
-    if (typeof UIManager !== 'undefined' && UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo(); 
-    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") { if (checkVictory()) return; }
+    if (gameState.isTutorialActive) gameState.tutorial.unitHasMoved = true;
+    logMessage(`${unit.name} movida. Mov. restante: ${unit.currentMovement}.`);
+    if (typeof positionUnitElement === "function") positionUnitElement(unit); 
+    if (UIManager) {
+        UIManager.updateSelectedUnitInfoPanel();
+        UIManager.updatePlayerAndPhaseInfo();
+    }
+    
+    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") {
+        if (checkVictory()) return;
+    }
+    
+    // Si la unidad que se movió sigue siendo la unidad seleccionada,
     if (selectedUnit && selectedUnit.id === unit.id) {
-        const canStillAttack = gameState.currentPhase === 'play' && !unit.hasAttacked; 
-        if (unit.hasMoved && !canStillAttack) { 
-             if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-        } else if (unit.hasMoved && canStillAttack) { 
-            if (typeof highlightPossibleActions === "function") highlightPossibleActions(unit);
-        } else {
-            if (typeof highlightPossibleActions === "function") highlightPossibleActions(unit);
-        }
+        // llama al UIManager para actualizar el resaltado de acciones desde su nueva posición.
+        UIManager.highlightPossibleActions(unit);
     }
 }
 
 function positionUnitElement(unit) {
-    // ... (función positionUnitElement como estaba) ...
-    if (!unit || !unit.element || !(unit.element instanceof HTMLElement)) { console.error("[positionUnitElement] Unidad o elemento no válido.", unit); return; }
-    if (typeof HEX_WIDTH === 'undefined' || typeof HEX_VERT_SPACING === 'undefined' || typeof HEX_HEIGHT === 'undefined') {
-        console.error("[positionUnitElement] Constantes de hexágono no definidas.");
-        unit.element.style.left = (unit.c * 60) + 'px'; unit.element.style.top = (unit.r * 70) + 'px';  
-        unit.element.style.display = 'flex'; return;
-    }
-    const unitWidth = unit.element.offsetWidth || parseInt(unit.element.style.width) || 36;
-    const unitHeight = unit.element.offsetHeight || parseInt(unit.element.style.height) || 36;
-    const xPos = unit.c * HEX_WIDTH + (unit.r % 2 !== 0 ? HEX_WIDTH / 2 : 0) + (HEX_WIDTH - unitWidth) / 2;
-    const yPos = unit.r * HEX_VERT_SPACING + (HEX_HEIGHT - unitHeight) / 2;
-    if (isNaN(xPos) || isNaN(yPos)) {
-        console.error(`[positionUnitElement] xPos o yPos es NaN para ${unit.name}.`);
-        unit.element.style.left = '10px'; unit.element.style.top = '10px'; 
-    } else {
-        unit.element.style.left = `${xPos}px`; unit.element.style.top = `${yPos}px`;
-    }
-    unit.element.style.display = 'flex'; 
-}
-
-// ---------------------------------------------------------------------------------
-// LÓGICA DE COMBATE
-// ---------------------------------------------------------------------------------
-function isValidAttack(attacker, defender) {
-    if (!attacker || !defender) { return false; }
-    if (attacker.player === gameState.currentPlayer && gameState.currentPhase === 'play' && attacker.hasAttacked) { return false; } // Solo chequear hasAttacked para el jugador actual
-    if (attacker.id === defender.id) { return false; }
-    if (attacker.player === defender.player) { return false; }
-
-    // USANDO attacker.attackRange
-    const distance = hexDistance(attacker.r, attacker.c, defender.r, defender.c);
-    const range = attacker.attackRange === undefined ? 1 : attacker.attackRange; // USANDO attackRange
-    
-    // console.log(`[isValidAttack] ${attacker.name} (J${attacker.player}, Rng:${range}) vs ${defender.name} (J${defender.player}). Dist: ${distance}`);
-    return distance !== Infinity && distance <= range;
-}
-
-async function attackUnit(attacker, defender) {
-    // ... (función attackUnit como estaba, pero usando attacker.attackRange y defender.attackRange si es necesario en contraataque) ...
-    if (!attacker || !defender) { console.error("attackUnit: Atacante o defensor nulo."); return; }
-    if (attacker.player === gameState.currentPlayer && gameState.currentPhase === 'play' && attacker.hasAttacked) { // Solo chequear para el jugador actual
-        if (typeof logMessage === "function") logMessage(`${attacker.name} ya ha atacado.`); return;
-    }
-    console.log(`[Combat] ${attacker.name} (J${attacker.player}) ataca a ${defender.name} (J${defender.player})`);
-    if (typeof logMessage === "function") logMessage(`${attacker.name} ataca a ${defender.name}!`);
-    if (typeof applyFlankingPenalty === "function") applyFlankingPenalty(defender, attacker);
-    let damageDealtToDefender = 0;
-    
-    if (typeof applyDamage === "function") damageDealtToDefender = applyDamage(attacker, defender);
-    else console.warn("applyDamage no definida.");
-    if (typeof showCombatAnimation === "function") await showCombatAnimation(defender, attacker, damageDealtToDefender > 0 ? 'melee_hit' : 'miss');
-    if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) UIManager.updateUnitStrengthDisplay(defender);
-    
-    if (damageDealtToDefender > 0 && attacker.player === gameState.currentPlayer) { // Solo el jugador actual gana oro por dañar
-    const goldForDamage = Math.floor(damageDealtToDefender / 4); // Ejemplo: 1 oro por cada 5 de daño
-    if (goldForDamage > 0) {
-        gameState.playerResources[attacker.player].oro += goldForDamage;
-        if (typeof logMessage === "function") {
-            logMessage(`${attacker.name} gana ${goldForDamage} oro por dañar a ${defender.name}.`);
-        }
-        // La UI se actualizará al final del turno o por UIManager.updateAllUIDisplays
-    }
-}
-
-    if (defender.currentHealth <= 0) {
-        if (typeof handleUnitDestroyed === "function") handleUnitDestroyed(defender, attacker);
-    } else {
-        const defenderCanCounterAttack = gameState.currentPhase === 'play' && (!defender.hasAttacked || defender.player !== gameState.currentPlayer) ; // IA o jugador que no es el actual puede contraatacar aunque haya "atacado" en su turno.
-        if (defenderCanCounterAttack && isValidAttack(defender, attacker)) { 
-            if (typeof logMessage === "function") logMessage(`${defender.name} contraataca!`);
-            let damageDealtToAttacker = 0;
-            if (typeof applyDamage === "function") damageDealtToAttacker = applyDamage(defender, attacker);
-            if (typeof showCombatAnimation === "function") await showCombatAnimation(attacker, defender, damageDealtToAttacker > 0 ? 'counter_attack_hit' : 'miss');
-            if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) UIManager.updateUnitStrengthDisplay(attacker);
-            if (attacker.currentHealth <= 0) {
-                if (typeof handleUnitDestroyed === "function") handleUnitDestroyed(attacker, defender);
-            }
-        }
-    }
-    if (gameState.currentPhase === 'play' && attacker.currentHealth > 0 && attacker.player === gameState.currentPlayer) { // Solo marcar hasAttacked para el jugador actual
-        attacker.hasAttacked = true;
-        // console.log(`   L-> DESPUÉS de atacar ${attacker.name}: ... attacked=${attacker.hasAttacked}`);
-    }
-    if (attacker.currentHealth > 0 && typeof handlePostBattleRetreat === "function") handlePostBattleRetreat(attacker);
-    if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
-    if (typeof UIManager !== 'undefined' && UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo();
-    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") { if(checkVictory()) return; }
-    if (selectedUnit && selectedUnit.id === attacker.id && attacker.currentHealth > 0) {
-        const noMoreMovement = attacker.hasMoved || attacker.currentMovement <= 0;
-        if (noMoreMovement && attacker.hasAttacked && attacker.player === gameState.currentPlayer) { // Solo para el jugador actual
-             if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights();
-        } else { 
-            if (typeof highlightPossibleActions === "function") highlightPossibleActions(attacker);
-        }
-    } else if (selectedUnit && selectedUnit.id === attacker.id && attacker.currentHealth <= 0) { 
-        if (typeof deselectUnit === "function") deselectUnit(); 
-    }
-}
-
-const COMBAT_ANIMATION_DURATION = 500; 
-async function showCombatAnimation(targetUnit, attackerUnit, type) { /* ... */ }
-function applyDamage(attacker, target) { /* ... (usando attacker.attack y target.defense) ... */ 
-    if (!attacker || !target) return 0;
-    let baseDamage = attacker.attack || 0; 
-    let defensePower = target.defense || 0; 
-    let terrainDefenseBonus = board[target.r]?.[target.c]?.terrain?.defenseBonus || 0; 
-    defensePower += terrainDefenseBonus;
-    let flankingMultiplier = target.isFlanked ? 1.25 : 1.0; 
-    let effectiveAttack = baseDamage * flankingMultiplier;
-    let damageDealt = Math.max(0, Math.round(effectiveAttack - defensePower)); 
-    if (effectiveAttack > 0 && damageDealt === 0) damageDealt = 1; 
-    damageDealt = Math.min(damageDealt, target.currentHealth); 
-    // console.log(`[DamageCalc] ... Daño: ${damageDealt}`);
-    target.currentHealth -= damageDealt;
-    if (typeof logMessage === "function") logMessage(`${attacker.name} inflige ${damageDealt} daño a ${target.name}.`);
-    target.isFlanked = false; 
-    return damageDealt;
-}
-
-
-function handleUnitDestroyed(destroyedUnit, victorUnit) {
-    if (!destroyedUnit) {
-        console.warn("[handleUnitDestroyed] Se intentó destruir una unidad nula.");
+    if (!unit || !unit.element || !(unit.element instanceof HTMLElement)) {
+        console.error("[positionUnitElement] Error: Unidad o elemento DOM no válido.", unit);
         return;
     }
-    console.log(`[UnitDestroyed] ¡${destroyedUnit.name} (Jugador ${destroyedUnit.player}) va a ser destruida!`);
-    if (typeof logMessage === "function") logMessage(`¡${destroyedUnit.name} ha sido destruida!`);
 
-    // 1. Quitar del tablero (estado lógico en la 'board')
-    const hexOfUnit = board[destroyedUnit.r]?.[destroyedUnit.c];
-    if (hexOfUnit && hexOfUnit.unit && hexOfUnit.unit.id === destroyedUnit.id) {
-        hexOfUnit.unit = null;
-        console.log(`[UnitDestroyed] Unidad ${destroyedUnit.name} eliminada del estado del hex (${destroyedUnit.r},${destroyedUnit.c}).`);
-        if (typeof renderSingleHexVisuals === "function") {
-            renderSingleHexVisuals(destroyedUnit.r, destroyedUnit.c);
+    // Usamos setTimeout con un retardo de 0. Esto empuja la ejecución de este bloque
+    // al final de la cola de eventos actual del navegador, dándole tiempo a renderizar el
+    // elemento que acabamos de añadir al DOM en 'placeFinalizedDivision'.
+    setTimeout(() => {
+        // Ponemos toda la lógica de posicionamiento DENTRO del setTimeout.
+        // Nos aseguramos de tener una referencia fresca al elemento, por si acaso.
+        const elementToPosition = unit.element; 
+        if (!elementToPosition) return;
+
+        // Comprobación de constantes (sin cambios)
+        if (typeof HEX_WIDTH === 'undefined') {
+            elementToPosition.style.left = (unit.c * 60) + 'px';
+            elementToPosition.style.top = (unit.r * 70) + 'px';
+            elementToPosition.style.display = 'flex';
+            return;
         }
-    } else {
-        console.warn(`[UnitDestroyed] No se encontró la unidad ${destroyedUnit.name} en el estado del hex (${destroyedUnit.r},${destroyedUnit.c}) o el ID no coincidía.`);
-    }
 
-    // --- INICIO DEPURACIÓN VISUALIZACIÓN DOM ---
-    console.log(`[UnitDestroyed DEBUG] Intentando quitar DOM para ${destroyedUnit.name}.`);
-    console.log(`[UnitDestroyed DEBUG] destroyedUnit.element:`, destroyedUnit.element);
-    if (destroyedUnit.element) {
-        console.log(`[UnitDestroyed DEBUG] destroyedUnit.element.parentElement:`, destroyedUnit.element.parentElement);
-        console.log(`[UnitDestroyed DEBUG] gameBoard (del DOM global):`, gameBoard);
-    }
-    // --- FIN DEPURACIÓN VISUALIZACIÓN DOM ---
+        // Cálculo de posición (sin cambios)
+        const unitWidth = elementToPosition.offsetWidth || 36;
+        const unitHeight = elementToPosition.offsetHeight || 36;
+        const xPos = unit.c * HEX_WIDTH + (unit.r % 2 !== 0 ? HEX_WIDTH / 2 : 0) + (HEX_WIDTH - unitWidth) / 2;
+        const yPos = unit.r * HEX_VERT_SPACING + (HEX_HEIGHT - unitHeight) / 2;
 
-    // 2. Quitar el elemento DOM de la unidad del gameBoard
-    if (destroyedUnit.element && destroyedUnit.element.parentElement) {
-        console.log(`[UnitDestroyed] Eliminando elemento DOM de ${destroyedUnit.name} de su padre:`, destroyedUnit.element.parentElement.id);
-        destroyedUnit.element.remove(); 
-    } else if (destroyedUnit.element && !destroyedUnit.element.parentElement) {
-        console.warn(`[UnitDestroyed] El elemento DOM de ${destroyedUnit.name} existe pero no tiene padre. No se puede eliminar (quizás ya se eliminó).`);
-    } else {
-        console.warn(`[UnitDestroyed] La unidad ${destroyedUnit.name} no tiene una propiedad .element válida o es nula. Intentando fallback por ID.`);
-        const elementInDomById = document.querySelector(`.unit[data-id="${destroyedUnit.id}"]`);
-        if (elementInDomById && elementInDomById.parentElement) {
-            console.warn(`[UnitDestroyed] Fallback: Encontrado y eliminando elemento por data-id="${destroyedUnit.id}" de su padre:`, elementInDomById.parentElement.id);
-            elementInDomById.remove();
-        } else if (elementInDomById) {
-            console.warn(`[UnitDestroyed] Fallback: Encontrado por data-id="${destroyedUnit.id}" pero no tiene padre.`);
-        } else {
-            console.warn(`[UnitDestroyed] Fallback: NO se encontró elemento por data-id="${destroyedUnit.id}". El icono podría persistir.`);
+        if (isNaN(xPos) || isNaN(yPos)) {
+            console.error(`[positionUnitElement async] xPos o yPos es NaN para ${unit.name}.`);
+            return;
         }
-    }
 
-    // 3. Quitar del array global de unidades ('units')
-    const index = units.findIndex(u => u.id === destroyedUnit.id);
-    if (index > -1) {
-        units.splice(index, 1);
-        console.log(`[UnitDestroyed] Unidad ${destroyedUnit.name} eliminada del array 'units'.`);
-    } else {
-        console.warn(`[UnitDestroyed] No se encontró la unidad ${destroyedUnit.name} en el array 'units' para eliminarla.`);
-    }
+        // Aplicación de estilos (sin cambios)
+        elementToPosition.style.left = `${xPos}px`;
+        elementToPosition.style.top = `${yPos}px`;
+        elementToPosition.style.display = 'flex';
+        
+        //console.log(`[positionUnitElement async] Unidad "${unit.name}" (ID: ${unit.id}) posicionada VISUALMENTE en (${xPos.toFixed(0)}, ${yPos.toFixed(0)}).`);
 
-    // 4. Otorgar experiencia/recursos al vencedor (si existe)
-    if (victorUnit && destroyedUnit.player !== victorUnit.player) {
-        const experienceGained = REGIMENT_TYPES[destroyedUnit.regiments[0].type]?.experienceValue || 10; // Asume experienceValue en REGIMENT_TYPES
-        victorUnit.experience = (victorUnit.experience || 0) + experienceGained;
-        if (typeof checkAndApplyLevelUp === "function") checkAndApplyLevelUp(victorUnit);
-        if (typeof logMessage === "function") logMessage(`${victorUnit.name} gana ${experienceGained} XP.`);
-
-        let goldGained = 0;
-        if (typeof destroyedUnit.goldValueOnDestroy === 'number') {
-            goldGained = destroyedUnit.goldValueOnDestroy;
-        } else if (destroyedUnit.regiments && destroyedUnit.regiments.length > 0) {
-            const mainRegimentTypeKey = destroyedUnit.regiments[0].type;
-            if (REGIMENT_TYPES[mainRegimentTypeKey] && typeof REGIMENT_TYPES[mainRegimentTypeKey].goldValueOnDestroy === 'number') {
-                goldGained = REGIMENT_TYPES[mainRegimentTypeKey].goldValueOnDestroy;
-            } else { goldGained = 5; }
-        } else { goldGained = 5; }
-
-        if (goldGained > 0 && gameState.playerResources[victorUnit.player]) {
-            gameState.playerResources[victorUnit.player].oro = (gameState.playerResources[victorUnit.player].oro || 0) + goldGained;
-            if (typeof logMessage === "function") logMessage(`${victorUnit.name} obtiene ${goldGained} de oro por destruir a ${destroyedUnit.name}.`);
-        }
-        if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) UIManager.updateUnitStrengthDisplay(victorUnit); 
-    }
-    
-    if (selectedUnit && selectedUnit.id === destroyedUnit.id) {
-        selectedUnit = null;
-        if (typeof UIManager !== 'undefined' && UIManager.hideContextualPanel) UIManager.hideContextualPanel();
-    }
-    // La actualización general de UI se hará al final del turno o acción.
-    // if (typeof UIManager !== 'undefined' && UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo();
-
-    if (typeof checkVictory === "function") checkVictory();
+    }, 0); // El retardo de 0 es la clave.
 }
 
-// ---------------------------------------------------------------------------------
-// ACCIÓN DE REFUERZO DE UNIDAD
-// ---------------------------------------------------------------------------------
-// En unit_Actions.js
+function isValidAttack(attacker, defender) {
+    // --- 1. VALIDACIONES BÁSICAS ---
+    if (!attacker || !defender) {
+        console.error("[isValidAttack] Error: Atacante o defensor no definidos.");
+        return false;
+    }
+    if (attacker.player === defender.player) {
+        return false;
+    }
+    if (gameState.isTutorialActive && gameState.tutorial.force_attack_allowed) {
+        // Salta la comprobación en el tutorial si es necesario
+    } else {
+        if (gameState.currentPhase === 'play' && attacker.player === gameState.currentPlayer && attacker.hasAttacked) {
+            return false;
+        }
+    }
+
+    // --- 2. CÁLCULO DEL RANGO FINAL CON HABILIDADES ---
+    let finalRange = attacker.attackRange || 1;
+
+    // <<== INICIO DE LA INTEGRACIÓN DE TALENTOS ==>>
+    const talentBonuses = calculateTalentBonuses(attacker);
+    if (talentBonuses && talentBonuses.attackRange_flat) {
+        finalRange += talentBonuses.attackRange_flat;
+    }
+    // <<== FIN DE LA INTEGRACIÓN DE TALENTOS ==>>
+
+    if (attacker.commander) {
+        const commanderData = COMMANDERS[attacker.commander];
+        const playerProfile = PlayerDataManager.getCurrentPlayer();
+        const heroInstance = playerProfile?.heroes.find(h => h.id === attacker.commander);
+
+        if (commanderData && heroInstance) {
+            commanderData.skills.forEach((skill, index) => {
+                const skillDef = SKILL_DEFINITIONS[skill.skill_id];
+                const starsRequired = index + 1;
+                
+                if (heroInstance.stars >= starsRequired && skillDef?.scope === 'ataque' && skillDef.effect?.stat === 'attackRange') {
+                    const typeFilter = skillDef.filters?.type;
+                    if (typeFilter) {
+                        const canBenefit = attacker.regiments.some(reg => typeFilter.includes(reg.type));
+                        if (canBenefit) {
+                            const skillLevel = heroInstance.skill_levels[index] || (index === 0 ? 1 : 0);
+                            if (skillLevel > 0 && skill.scaling_override) {
+                                const bonusValue = skill.scaling_override[skillLevel - 1];
+                                finalRange += bonusValue;
+                            }
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    // --- 3. TUS LOGS DE DEPURACIÓN (INTACTOS) ---
+    const attackerName = attacker.name || 'Sin Nombre';
+    const defenderName = defender.name || 'Sin Nombre';
+    const attackerPosition = `(${attacker.r},${attacker.c})`;
+    const defenderPosition = `(${defender.r},${defender.c})`;
+    const distance = hexDistance(attacker.r, attacker.c, defender.r, defender.c);
+
+    // --- 4. LÓGICA NAVAL ---
+    const attackerRegimentData = REGIMENT_TYPES[attacker.regiments[0]?.type];
+    const defenderRegimentData = REGIMENT_TYPES[defender.regiments[0]?.type];
+    if (attackerRegimentData && !attackerRegimentData.is_naval && defenderRegimentData?.is_naval) {
+        if (defenderRegimentData?.canOnlyBeAttackedByRanged && finalRange <= 1) { // Usa finalRange aquí
+            return false; 
+        }
+    }
+    
+    // --- 5. COMPROBACIÓN FINAL DE RANGO ---
+    const canAttack = distance <= finalRange;
+
+    // Log final con el rango calculado
+    console.log(`[Chequeo de Ataque]: ${attackerName} ${attackerPosition} vs ${defenderName} ${defenderPosition}. Distancia: ${distance}, Rango de Ataque Final: ${finalRange}. ¿Válido?: ${canAttack}`);
+    
+    return canAttack;
+}
+
+/**
+ * Orquesta un combate completo entre dos divisiones, resolviéndolo a nivel de regimientos.
+ * Crea una cola de acciones basada en la iniciativa y el rango de ataque de cada regimiento,
+ * y luego procesa cada acción de forma secuencial.
+ * @param {object} attackerDivision - La división que inicia el combate.
+ * @param {object} defenderDivision - La división que es atacada.
+**/
+async function attackUnit(attackerDivision, defenderDivision) {
+    console.log(`%c[VIAJE-DESTINO FINAL] La función de combate 'attackUnit' ha sido ejecutada. Atacante: ${attackerDivision.name}, Defensor: ${defenderDivision.name}`, 'background: #222; color: #bada55; font-size: 1.2em; font-weight: bold;');
+    // <<== LLAMADA AL CRONISTA ==>>
+    if (gameState.isTutorialActive && typeof TutorialManager !== 'undefined') {
+        
+        // Primero, notificamos siempre que se ha completado un ataque (útil para el paso 8).
+        TutorialManager.notifyActionCompleted('attack_completed');
+        
+        // Ahora, una comprobación específica y segura para el paso 10.
+        // Si el paso actual del tutorial está esperando la condición "flank_attack_completed",
+        // entonces CUALQUIER ataque cumplirá la condición.
+        const currentTutorialStep = TutorialManager.currentSteps[TutorialManager.currentIndex];
+        if (currentTutorialStep && currentTutorialStep.actionCondition.toString().includes('flank_attack_completed')) {
+            // <<== LÓGICA DE FLANQUEO PARA EL TUTORIAL MEJORADA ==>>
+            // Comprobamos si realmente hay un aliado adyacente para considerarlo flanqueo
+            const neighbors = getHexNeighbors(defenderDivision.r, defenderDivision.c);
+            const isFlankedByAlly = neighbors.some(n => {
+                const unit = getUnitOnHex(n.r, n.c);
+                return unit && unit.player === attackerDivision.player && unit.id !== attackerDivision.id;
+            });
+            if (isFlankedByAlly) {
+                TutorialManager.notifyActionCompleted('flank_attack_completed');
+            }
+        }
+        TutorialManager.notifyActionCompleted('attack_completed');
+    }
+        
+    if (typeof Chronicle !== 'undefined') {
+        Chronicle.logEvent('battle_start', { attacker: attackerDivision, defender: defenderDivision });
+    }
+
+    try {
+        if (!attackerDivision || !defenderDivision) return;
+        logMessage(`¡COMBATE! ${attackerDivision.name} (J${attackerDivision.player}) vs ${defenderDivision.name} (J${defenderDivision.player})`);
+        
+        // <<== INICIO DE LA CORRECCIÓN DE FLANQUEO ==>>
+        // 1. Llamar a la función de detección de flanqueo ANTES de cualquier cálculo de daño.
+        // Le pasamos el defensor y el atacante principal.
+        applyFlankingPenalty(defenderDivision, attackerDivision);
+        // <<== FIN DE LA CORRECCIÓN DE FLANQUEO ==>>
+
+        console.group(`--- ANÁLISIS DE COMBATE ---`);
+
+        const initialHealthAttacker = attackerDivision.currentHealth;
+        const initialHealthDefender = defenderDivision.currentHealth;
+        const distance = hexDistance(attackerDivision.r, attackerDivision.c, defenderDivision.r, defenderDivision.c);
+        
+        // Asignar IDs de log temporales para esta batalla
+        attackerDivision.regiments.forEach((r, i) => r.logId = `A-${i}`);
+        defenderDivision.regiments.forEach((r, i) => r.logId = `D-${i}`);
+
+        console.log("Regimientos Atacantes:", attackerDivision.regiments.map(r => `${r.type}[${r.logId}](${r.health} HP)`));
+        console.log("Regimientos Defensores:", defenderDivision.regiments.map(r => `${r.type}[${r.logId}](${r.health} HP)`));
+
+        const actionQueue = [];
+
+        // Función auxiliar mejorada para calcular bonus y añadir acciones
+        const addActions = (division, isAttacker) => {
+            if (!division.regiments) return;
+
+            let commanderSkills = [];
+            let heroInstance = null;
+            if (division.commander) {
+                const commanderData = COMMANDERS[division.commander];
+                const playerProfile = PlayerDataManager.getCurrentPlayer();
+                heroInstance = playerProfile.heroes.find(h => h.id === division.commander);
+                if (commanderData && heroInstance) {
+                    commanderSkills = commanderData.skills;
+                }
+            }
+
+            division.regiments.forEach(reg => {
+                const regData = REGIMENT_TYPES[reg.type];
+                if (!regData || reg.health <= 0) return;
+
+                let finalInitiative = regData.initiative || 0;
+                let finalRange = regData.attackRange || 1;
+
+                //revisión de habilidad 
+
+                commanderSkills.forEach((skill, index) => {
+                    const skillDef = SKILL_DEFINITIONS[skill.skill_id];
+                    // Asegurarse de que el héroe y la habilidad existen
+                    if (!heroInstance || !skillDef) return;
+
+                    const starsRequired = index + 1;
+                    if (heroInstance.stars < starsRequired || skillDef?.scope !== 'ataque') return;
+                    
+                    const categoryFilter = skillDef.filters?.category;
+                    const typeFilter = skillDef.filters?.type;
+                    let filterMatch = false;
+
+                    if (categoryFilter) {
+                        if (categoryFilter.includes('all') || categoryFilter.includes(regData.category)) {
+                            filterMatch = true;
+                        }
+                    } else if (typeFilter) {
+                        // <<== USA "reg.type" EN LUGAR DE "attackerRegiment.type" ==>>
+                        if (typeFilter.includes(reg.type)) {
+                            filterMatch = true;
+                        }
+                    } else {
+                        filterMatch = true;
+                    }
+
+                    if (filterMatch) {
+                        const skillLevel = heroInstance.skill_levels[index] || (index === 0 ? 1 : 0);
+                        // Asegurarse de que el nivel es válido para el array de escalado
+                        if (skillLevel > 0 && skill.scaling_override && skillLevel <= skill.scaling_override.length) {
+                             const bonusValue = skill.scaling_override[skillLevel - 1];
+                            if (skillDef.effect.stat === 'initiative') {
+                                finalInitiative += bonusValue;
+                            } else if (skillDef.effect.stat === 'attackRange') {
+                                finalRange += bonusValue;
+                            }
+                        }
+                    }
+                });
+                
+                // fin revisión de habilidad
+
+                if (distance <= finalRange) {
+                    const numAttacks = 1;
+                    for (let i = 0; i < numAttacks; i++) {
+                        actionQueue.push({ 
+                            regiment: reg, 
+                            division: division, 
+                            initiative: finalInitiative, 
+                            isAttackerTurn: isAttacker 
+                        });
+                    }
+                }
+            });
+        };
+
+        addActions(attackerDivision, true);
+        addActions(defenderDivision, false);
+
+        if (actionQueue.length === 0) {
+            logMessage("Ninguna unidad tiene rango para el combate.");
+            console.groupEnd(); return;
+        }
+        
+        actionQueue.sort((a, b) => b.initiative - a.initiative || b.isAttackerTurn - a.isAttackerTurn);
+        console.log(`Secuencia de batalla con ${actionQueue.length} acciones.`);
+        console.groupEnd();
+
+        console.group("--- SECUENCIA DE DUELOS ---");
+        
+        // --- INICIO DE LA MODIFICACIÓN ---
+        // Mapa para asignar un objetivo FIJO a cada regimiento al inicio del combate.
+        const targetAssignments = new Map();
+        
+        // Asignar objetivos 1 a 1 antes de que empiecen los duelos
+        const liveAttackersInitial = attackerDivision.regiments.filter(r => r.health > 0);
+        const liveDefendersInitial = defenderDivision.regiments.filter(r => r.health > 0);
+        
+        liveAttackersInitial.forEach((attackerReg, index) => {
+            const target = liveDefendersInitial[index % liveDefendersInitial.length];
+            targetAssignments.set(attackerReg.logId, target);
+        });
+        liveDefendersInitial.forEach((defenderReg, index) => {
+            const target = liveAttackersInitial[index % liveAttackersInitial.length];
+            targetAssignments.set(defenderReg.logId, target);
+        });
+
+        for (const action of actionQueue) {
+            const { regiment, division, isAttackerTurn } = action;
+            const opposingDivision = isAttackerTurn ? defenderDivision : attackerDivision;
+            if (regiment.health <= 0 || opposingDivision.currentHealth <= 0) continue;
+
+            // Obtener el objetivo FIJO que se le asignó a este regimiento
+            let targetRegiment = targetAssignments.get(regiment.logId);
+
+            // Si el objetivo fijo ya ha sido destruido, el regimiento ataca al primer objetivo vivo disponible
+            if (!targetRegiment || targetRegiment.health <= 0) {
+                const newTarget = selectTargetRegiment(opposingDivision);
+                if (newTarget) {
+                    applyDamage(regiment, newTarget, division, opposingDivision);
+                    recalculateUnitHealth(opposingDivision);
+                    if (UIManager) UIManager.updateUnitStrengthDisplay(opposingDivision);
+                }
+            } else {
+                // Si el objetivo fijo sigue vivo, lo ataca
+                await new Promise(resolve => setTimeout(resolve, 100));
+                applyDamage(regiment, targetRegiment, division, opposingDivision);
+            // La actualización de salud ahora se hace dentro de applyDamage, pero
+            // recalcular la salud total de la división aquí sigue siendo una buena práctica.
+            recalculateUnitHealth(opposingDivision);
+            if (UIManager) UIManager.updateUnitStrengthDisplay(opposingDivision);
+        }
+        }
+        console.groupEnd();
+
+        // === FASE DE RESOLUCIÓN FINAL (RESTAURADA Y MEJORADA) =====
+        
+        console.group("--- RESULTADOS DEL COMBATE ---");
+
+        recalculateUnitHealth(attackerDivision);
+        recalculateUnitHealth(defenderDivision);
+
+        const finalHealthAttacker = attackerDivision.currentHealth;
+        const finalHealthDefender = defenderDivision.currentHealth;
+
+        // 1. Calcular daño y eficiencia (TU LÓGICA ORIGINAL RESTAURADA)
+        const damageDealtByAttacker = initialHealthDefender - finalHealthDefender;
+        const damageDealtByDefender = initialHealthAttacker - finalHealthAttacker;
+        const attackerEfficiency = damageDealtByAttacker / (damageDealtByDefender || 1);
+        const defenderEfficiency = damageDealtByDefender / (damageDealtByAttacker || 1);
+
+        // 2. Calcular XP base por participar en el combate
+        let attackerXP = 5 + Math.round(attackerEfficiency * 2);
+        let defenderXP = 5 + Math.round(defenderEfficiency * 2);
+        
+        // 3. Comprobar destrucciones
+        const attackerDestroyed = finalHealthAttacker <= 0;
+        const defenderDestroyed = finalHealthDefender <= 0;
+
+        // 4. Aplicar resultados
+        if (defenderDestroyed) {
+            if (gameState.isTutorialActive && defenderDivision.player === 2) {
+                    gameState.tutorial.enemyDefeated = true; // Flag para el tutorial
+            }
+            // Se pasa el atacante original como vencedor
+            await handleUnitDestroyed(defenderDivision, attackerDivision); // <<== AWAIT
+        }
+        if (attackerDestroyed) {
+            // Se pasa el defensor original como vencedor
+            await handleUnitDestroyed(attackerDivision, defenderDivision); // <<== AWAIT
+        }
+
+        // 5. Asignar experiencia de combate a los SUPERVIVIENTES (TU LÓGICA RESTAURADA)
+        if (!attackerDestroyed) {
+            logMessage(`${attackerDivision.name} gana ${attackerXP} XP por su eficiencia.`);
+            attackerDivision.experience = (attackerDivision.experience || 0) + attackerXP;
+            checkAndApplyLevelUp(attackerDivision);
+            
+            // Si además ganó (destruyó al defensor), recibe el bonus de moral.
+            // Esto ahora está dentro de handleUnitDestroyed, pero lo dejamos por si acaso no gana.
+            if(defenderDestroyed){
+                const moraleGain = 15;
+                attackerDivision.morale = Math.min(attackerDivision.maxMorale, (attackerDivision.morale || 50) + moraleGain);
+        }
+        }
+        
+        if (!defenderDestroyed) {
+            logMessage(`${defenderDivision.name} gana ${defenderXP} XP por su resistencia.`);
+            defenderDivision.experience = (defenderDivision.experience || 0) + defenderXP;
+            checkAndApplyLevelUp(defenderDivision);
+        }
+
+        // 6. Marcar acción del atacante
+        if (attackerDivision.currentHealth > 0) {
+            // Marcar la unidad SOLO como que ha atacado.
+           // attackerDivision.hasMoved = true;
+            attackerDivision.hasAttacked = true;
+        }
+
+        console.groupEnd();
+        if (UIManager) {
+            UIManager.updateAllUIDisplays();
+            // Refrescar el panel si la unidad que atacó es la seleccionada
+            if(selectedUnit && selectedUnit.id === attackerDivision.id){
+                UIManager.showUnitContextualInfo(selectedUnit, true);
+                UIManager.highlightPossibleActions(selectedUnit); // Esto mostrará los hex de movimiento disponibles!
+            }
+        }
+        if(typeof checkVictory === 'function') checkVictory();
+        
+    } catch (error) {
+        console.error(`ERROR CATASTRÓFICO DENTRO DE attackUnit:`, error);
+        logMessage("Error crítico durante el combate.", "error");
+        if (attackerDivision?.currentHealth > 0) {
+           // attackerDivision.hasMoved = true;
+            attackerDivision.hasAttacked = true;
+        }
+        if(UIManager) UIManager.updateAllUIDisplays();
+    }
+}
+
+/**
+ * Calcula los stats combinados de una división a partir de sus regimientos,
+ * aplicando los bonus de la Civilización y del General asignado.
+ * @param {Array<object>} regimentsArray - El array de regimientos.
+ * @param {number} playerNum - El número del jugador.
+ * @param {string|null} commanderId - El ID del general asignado a la división. // <<== NUEVO PARÁMETRO
+ * @returns {object} Objeto con los stats calculados.
+ */
+function calculateRegimentStats(unit) {
+    // 1. VALIDACIÓN 
+    if (!unit || !Array.isArray(unit.regiments)) {
+        console.error("calculateRegimentStats recibió una unidad inválida.", unit);
+        Object.assign(unit, { attack: 0, defense: 0, maxHealth: 0, movement: 0, visionRange: 0, attackRange: 1 });
+        return;
+    }
+
+    // 2. INICIALIZACIÓN (Sin cambios, tuya es correcta)
+    let finalStats = { attack: 0, defense: 0, maxHealth: 0, movement: Infinity, visionRange: 0, attackRange: 0, sprite: '❓' };
+    if (unit.regiments.length === 0) {
+        finalStats.movement = 0; Object.assign(unit, finalStats); return;
+    }
+
+// 3. OBTENCIÓN DE DATOS DESDE LA UNIDAD: Ahora sacamos la info del propio objeto 'unit'.    
+    const playerNum = unit.player;
+    const playerCivName = gameState?.playerCivilizations?.[playerNum] || 'ninguna';
+    const civBonuses = CIVILIZATIONS[playerCivName]?.bonuses || {};
+    
+    // --- LÓGICA DE HÉROE (dentro de la función principal) ---
+    let commanderData = null, heroInstance = null;
+    if (unit.commander) {
+        commanderData = COMMANDERS[unit.commander];
+        const playerProfile = PlayerDataManager.getCurrentPlayer(); // Simplificación para IA
+        if (playerProfile) heroInstance = playerProfile.heroes.find(h => h.id === unit.commander);
+    }
+    unit.base_regiment_stats = {}; // Inicializar
+    console.log(`[calculateRegimentStats] Procesando unidad: ${unit.name} (ID: ${unit.id}). Creando base_regiment_stats.`);
+
+    unit.regiments.forEach((reg, index) => {
+        const baseRegData = REGIMENT_TYPES[reg.type];
+        if (!baseRegData) return;
+        
+        // --- LÓGICA DE CÁLCULO  ---
+        let regAttack = baseRegData.attack || 0;
+        let regDefense = baseRegData.defense || 0;
+        let regHealth = baseRegData.health || 0;
+        let regMovement = baseRegData.movement || 0;
+        let regAttackRange = baseRegData.attackRange || 1;
+
+        // APLICAR BONUS DE CIVILIZACIÓN
+        const civUnitBonus = civBonuses.unitTypeBonus?.[reg.type] || {};
+        if (civUnitBonus.attackBonus) {
+            console.log(`[Civ Bonus] Aplicando +${civUnitBonus.attackBonus} Atk a ${reg.type}`);
+            regAttack += civUnitBonus.attackBonus;
+        }
+        if (civUnitBonus.defenseBonus) {
+            console.log(`[Civ Bonus] Aplicando +${civUnitBonus.defenseBonus} Def a ${reg.type}`);
+            regDefense += civUnitBonus.defenseBonus;
+        }
+        regMovement += civUnitBonus.movementBonus || 0;
+        regAttackRange += civUnitBonus.attackRange || 0; 
+        
+        const regId = `reg_${index}`; // Usar un ID consistente
+        reg.logId = regId;
+        
+        // Guarda los stats calculados (con bonus de civ) para este regimiento.
+        unit.base_regiment_stats[regId] = { attack: regAttack, defense: regDefense };
+
+        // Sumar stats finales
+        finalStats.attack += regAttack;
+        finalStats.defense += regDefense;
+        finalStats.maxHealth += regHealth;
+        finalStats.movement = Math.min(finalStats.movement, baseRegData.movement || 0);
+        finalStats.visionRange = Math.max(finalStats.visionRange, baseRegData.visionRange || 0);
+        finalStats.attackRange = Math.max(finalStats.attackRange, baseRegData.attackRange || 1);
+        finalStats.initiative = Math.max(finalStats.initiative, baseRegData.initiative || 1);
+        if (finalStats.sprite === '❓') finalStats.sprite = baseRegData.sprite;
+    });
+       
+    // <<== INICIO DE LA INTEGRACIÓN DE TALENTOS ==>>
+    const talentBonuses = calculateTalentBonuses(unit);
+    if (talentBonuses) {
+        console.log(`[Talent Bonus] Aplicando talentos de ${unit.commander} a ${unit.name}:`, talentBonuses);
+
+        // Aplicar bonus planos (se suman directamente)
+        finalStats.attack += talentBonuses.attack_flat || 0;
+        finalStats.defense += talentBonuses.defense_flat || 0;
+        finalStats.maxHealth += talentBonuses.health_flat || 0;
+        
+        // Aplicar bonus porcentuales (se multiplican sobre la suma actual)
+        finalStats.attack *= (1 + (talentBonuses.attack_percentage || 0) / 100);
+        finalStats.defense *= (1 + (talentBonuses.defense_percentage || 0) / 100);
+        finalStats.maxHealth *= (1 + (talentBonuses.health_percentage || 0) / 100);
+
+        // Redondear para evitar decimales extraños
+        finalStats.attack = Math.round(finalStats.attack);
+        finalStats.defense = Math.round(finalStats.defense);
+        finalStats.maxHealth = Math.round(finalStats.maxHealth);
+
+        // Aplicar bonus a stats tácticos (siempre son planos)
+        finalStats.movement += talentBonuses.movement_flat || 0;
+        finalStats.attackRange += talentBonuses.attackRange_flat || 0;
+        finalStats.initiative += talentBonuses.initiative_flat || 0;
+    }
+    // <<== FIN DE LA INTEGRACIÓN DE TALENTOS ==>>
+
+    finalStats.movement = (finalStats.movement === Infinity) ? 0 : finalStats.movement;
+    Object.assign(unit, finalStats);
+    if (typeof unit.currentHealth === 'undefined') {
+        unit.currentHealth = unit.maxHealth;
+    }
+    console.log(`[calculateRegimentStats] Finalizado para ${unit.name}. Ataque total: ${finalStats.attack}`);
+}
+
+/**
+ * Calcula y aplica el daño de un duelo 1vs1 entre regimientos,
+ * considerando todos los modificadores de sus divisiones y del terreno.
+ * @param {object} attackerRegiment - El regimiento que ataca.
+ * @param {object} targetRegiment - El regimiento que defiende.
+ * @param {object} attackerDivision - La división a la que pertenece el atacante.
+ * @param {object} targetDivision - La división a la que pertenece el defensor.
+ * @returns {number} La cantidad de daño real infligido.
+ * Calcula y aplica el daño de un duelo 1vs1 entre regimientos,
+ * considerando todos los modificadores (terreno, moral, experiencia, desgaste, etc.)
+ * y generando logs detallados para cada paso.
+ */
+function applyDamage(attackerRegiment, targetRegiment, attackerDivision, targetDivision) {
+    // 1. OBTENCIÓN DE DATOS BASE
+    const attackerData = REGIMENT_TYPES[attackerRegiment.type];
+    const targetData = REGIMENT_TYPES[targetRegiment.type];
+    if (!attackerData || !targetData) {
+        console.error("applyDamage: Datos de regimiento no encontrados.", { attackerRegiment, targetRegiment });
+        return 0;
+    }
+    
+        // --- CONTEXTO DEL DUELO ---
+    const isFirstHitOnTarget = (targetRegiment.hitsTakenThisRound || 0) === 0;
+
+    // --- 1. OBTENER BONIFICACIONES (¡AQUÍ ESTÁ EL CAMBIO!) ---
+    const attackerTalentBonuses = calculateTalentBonuses(attackerDivision, targetDivision, isFirstHitOnTarget) || {};
+    const defenderTalentBonuses = calculateTalentBonuses(targetDivision, attackerDivision, false) || {}; // El defensor nunca hace el "primer golpe"
+
+    const attackerCivName = CIVILIZATIONS[gameState.playerCivilizations[attackerDivision.player]]?.name || 'Sin Civ';
+    const defenderCivName = CIVILIZATIONS[gameState.playerCivilizations[targetDivision.player]]?.name || 'Sin Civ';
+    console.groupCollapsed(`Duelo: [${attackerRegiment.type}] (${attackerCivName}) vs [${targetRegiment.type}] (${defenderCivName})`);
+
+    // ====================================================================
+    // --- ATACANTE ---
+    // ====================================================================
+    console.log(`%c--- ATACANTE ---`, 'color: lightcoral;');
+    
+    // Paso 1: Stats Base
+    let baseAttack = attackerDivision.base_regiment_stats[attackerRegiment.logId]?.attack || attackerData.attack;
+    console.log(`Ataque Base ("en papel"): ${baseAttack.toFixed(1)}`);
+
+    // Paso 2: Bonus de Civilización
+    let civAttackBonus = CIVILIZATIONS[gameState.playerCivilizations[attackerDivision.player]]?.bonuses?.unitTypeBonus?.[attackerRegiment.type]?.attackBonus || 0;
+    console.log(`+ Bono Civilización (Ataque): ${civAttackBonus.toFixed(1)}`);
+
+    let totalAttack = baseAttack + civAttackBonus;
+    // Aplicar bonus de talentos (ya vienen calculados)
+    totalAttack *= (1 + (attackerTalentBonuses.attack_percentage || 0) / 100);
+    totalAttack += attackerTalentBonuses.attack_flat || 0;
+    totalAttack *= (1 + (attackerTalentBonuses.damage_increase_percentage || 0) / 100);
+
+    // Modificador de salud
+    totalAttack *= (attackerRegiment.health / attackerData.health);
+    
+    // <<== INICIO: LÓGICA DE HABILIDADES DE ATAQUE ==>>
+    if (attackerDivision.commander) {
+        const commanderData = COMMANDERS[attackerDivision.commander];
+        const playerProfile = PlayerDataManager.getCurrentPlayer();
+        const heroInstance = playerProfile.heroes.find(h => h.id === attackerDivision.commander);
+
+        if (commanderData && heroInstance) {
+            commanderData.skills.forEach((skill, index) => {
+                const skillDef = SKILL_DEFINITIONS[skill.skill_id];
+                const starsRequired = index + 1;
+
+                // Salir si la habilidad no está desbloqueada por estrellas
+                if (heroInstance.stars < starsRequired) return;
+
+                if (skillDef?.scope === 'combat' && skillDef.effect?.stat === 'attack') {
+                    // Filtro de ubicación
+                const locationFilter = skill.filters?.location;
+                if (locationFilter) {
+                    const hexOwner = board[attackerDivision.r][attackerDivision.c].owner;
+                    const isOwnTerritory = hexOwner === attackerDivision.player;
+                    if ((locationFilter === 'own_territory' && !isOwnTerritory) || (locationFilter === 'enemy_territory' && isOwnTerritory)) {
+                        return; // No se cumple la condición de ubicación
+                    }
+                }
+                
+                // 3. Comprobar filtro de tipo de tropa
+                const categoryFilter = skillDef.filters?.category;
+                if (categoryFilter && !categoryFilter.includes('all') && !categoryFilter.includes(attackerData.category)) {
+                    return; // No se cumple la condición de categoría
+                }
+
+                // 4. Si todo pasa, aplicar el bonus
+                const skillLevel = heroInstance.skill_levels[index] || 1;
+                const bonusValue = skill.scaling_override[skillLevel - 1];
+
+                if (skillDef.effect.is_percentage) {
+                    totalAttack *= (1 + bonusValue / 100);
+                } else {
+                    totalAttack += bonusValue;
+                    }
+                }
+            });
+        }
+    }
+    console.log(`%c   = Ataque Total (con Habilidades): ${totalAttack.toFixed(1)}`, 'font-weight: bold;');
+    // <<== FIN: LÓGICA DE HABILIDADES DE ATAQUE ==>>
+  
+    // ====================================================================
+    // --- DEFENSOR ---
+    // ====================================================================
+    console.log(`%c--- DEFENSOR ---`, 'color: lightblue;');
+    
+    // Paso 1: Stats Base
+    let baseDefense = targetDivision.base_regiment_stats[targetRegiment.logId]?.defense || targetData.defense;
+    console.log(`Defensa Base ("en papel"): ${baseDefense.toFixed(1)}`);
+    let civDefenseBonus = CIVILIZATIONS[gameState.playerCivilizations[targetDivision.player]]?.bonuses?.unitTypeBonus?.[targetRegiment.type]?.defenseBonus || 0;
+    console.log(`+ Bono Civilización (Defensa): ${civDefenseBonus.toFixed(1)}`);
+    
+    let totalDefense = baseDefense + civDefenseBonus;
+
+    // Aplicar bonus de talentos
+    totalDefense *= (1 + (defenderTalentBonuses.defense_percentage || 0) / 100);
+    totalDefense += defenderTalentBonuses.defense_flat || 0;
+    totalDefense *= (1 - (defenderTalentBonuses.damage_reduction_percentage || 0) / 100);
+    
+    // <<== INICIO: LÓGICA DE HABILIDADES DE DEFENSA/SALUD ==>>
+    if (targetDivision.commander) {
+        const commanderData = COMMANDERS[targetDivision.commander];
+        const playerProfile = PlayerDataManager.getCurrentPlayer();
+        const heroInstance = playerProfile.heroes.find(h => h.id === targetDivision.commander);
+        
+        if (commanderData && heroInstance) {
+            commanderData.skills.forEach((skill, index) => {
+                const skillDef = SKILL_DEFINITIONS[skill.skill_id];
+                const starsRequired = index + 1;
+                if (heroInstance.stars < starsRequired) return;
+
+                if (skillDef?.scope === 'combat' && (skillDef.effect?.stat === 'defense' || skillDef.effect?.stat === 'health')) {
+                    // (Lógica de filtros igual que la del atacante)
+                const locationFilter = skill.filters?.location;
+                if (locationFilter) {
+                    const hexOwner = board[targetDivision.r][targetDivision.c].owner;
+                    const isOwnTerritory = hexOwner === targetDivision.player;
+                    if ((locationFilter === 'own_territory' && !isOwnTerritory) || (locationFilter === 'enemy_territory' && isOwnTerritory)) {
+                        return;
+                    }
+                }
+
+                // 3. Filtro de tipo de tropa
+                const categoryFilter = skillDef.filters?.category;
+                if (categoryFilter && !categoryFilter.includes('all') && !categoryFilter.includes(targetData.category)) {
+                    return;
+                }
+
+                    const skillLevel = heroInstance.skill_levels[index] || 1;
+                const bonusValue = skill.scaling_override[skillLevel - 1];
+
+                // Los bonus de salud se tratan como bonus de defensa en el cálculo de daño
+                if (skillDef.effect.is_percentage) {
+                    totalDefense *= (1 + bonusValue / 100);
+                } else {
+                    totalDefense += bonusValue;
+                    }
+                }
+            });
+        }
+    }
+    console.log(`%c   = Defensa Total (con Habilidades): ${totalDefense.toFixed(1)}`, 'font-weight: bold;');
+    // <<== FIN: LÓGICA DE HABILIDADES DE DEFENSA/SALUD ==>>
+    
+    // ====================================================================
+    // --- MODIFICADORES SITUACIONALES DE COMBATE ---
+    // ====================================================================
+    console.log(`%c--- MODIFICADORES DE COMBATE ---`, 'color: gold;');
+    
+    // Modificadores de Defensa (terreno, flanqueo, desgaste)
+    const terrainBonus = TERRAIN_TYPES[board[targetDivision.r][targetDivision.c].terrain]?.defenseBonus || 1;
+    if (terrainBonus > 1) {
+        totalDefense *= terrainBonus;
+        console.log(`Defensa con Bonus Terreno: *${terrainBonus.toFixed(2)} -> ${totalDefense.toFixed(1)}`);
+    }
+
+     // Lógica de Flanqueo
+    if (targetDivision.isFlanked) {
+        totalDefense *= 0.75;
+        console.log(`* Penalizador Flanqueo: *0.75 -> ${totalDefense.toFixed(1)}`);
+    }
+    
+    // === LÓGICA DE DESGASTE
+    if (targetRegiment.hitsTakenThisRound === undefined) targetRegiment.hitsTakenThisRound = 0;
+    const wearinessMultiplier = Math.max(0.25, 1 - (0.20 * targetRegiment.hitsTakenThisRound));
+    if (wearinessMultiplier < 1) {
+        totalDefense *= wearinessMultiplier;
+        console.log(`Defensa con Desgaste: *${wearinessMultiplier.toFixed(2)} -> ${totalDefense.toFixed(1)}`);
+    }
+
+    // Modificador de Ataque (salud)
+    totalAttack *= (attackerRegiment.health / attackerData.health);
+    console.log(`Ataque Final (mod. salud): ${totalAttack.toFixed(1)}`);
+    let finalDefense = totalDefense; // Renombramos para claridad
+    console.log(`Defensa Final (mod. situacionales): ${finalDefense.toFixed(1)}`);
+
+    // ====================================================================
+    // --- RESOLUCIÓN FINAL  ---
+    // ====================================================================
+    console.log(`%c--- RESOLUCIÓN FINAL ---`, 'color: lightgreen;');
+    let rawDamage = totalAttack - finalDefense;
+    let damageDealt;
+
+    if (rawDamage <= 0) {
+        damageDealt = 1; // DAÑO MÍNIMO GARANTIZADO
+    } else {
+        damageDealt = Math.round(rawDamage);
+    }
+
+    console.log(`Daño Bruto: ${rawDamage.toFixed(1)} -> Daño Aplicado: ${damageDealt}`);
+    
+    const actualDamage = Math.min(targetRegiment.health, damageDealt);
+    targetRegiment.health -= actualDamage;
+    targetRegiment.hitsTakenThisRound = (targetRegiment.hitsTakenThisRound || 0) + 1;
+
+    console.log(`%c>> DAÑO REAL: ${actualDamage}. Salud restante: ${targetRegiment.health}`, 'background: #333; color: #ff9999;');
+    
+    showFloatingDamage(targetDivision, actualDamage);
+    console.groupEnd();
+    
+    return actualDamage;
+}
+
+/**
+ * Selecciona un regimiento objetivo de la división oponente.
+ * Acepta la división activa y la oponente, y aplica la estrategia correcta.
+ * Incluye logs detallados para máxima transparencia.
+ * @param {object} actingDivision - La división que está realizando el ataque.
+ * @param {object} opposingDivision - La división que está siendo atacada.
+ * @returns {object|null} El regimiento objetivo, o null si no hay objetivos válidos.
+ */
+function selectTargetRegiment(opposingDivision) {
+    if (!opposingDivision || !opposingDivision.regiments || opposingDivision.regiments.length === 0) {
+        return null; // No hay regimientos para atacar
+    }
+
+    // Filtra para obtener solo los regimientos que aún están vivos
+    const liveRegiments = opposingDivision.regiments.filter(r => r.health > 0);
+
+    if (liveRegiments.length === 0) {
+        return null; // No hay regimientos vivos para atacar
+    }
+
+    // Estrategia de objetivo: Atacar al más débil
+    // Ordena los regimientos vivos por su salud actual, de menor a mayor.
+    liveRegiments.sort((a, b) => a.health - b.health);
+    
+    // Devuelve el primer regimiento de la lista ordenada (el que tiene menos salud).
+    return liveRegiments[0];
+}
+
+function predictCombatOutcome(attacker, defender) {
+    if (!attacker || !defender) {
+        console.error("[PredictCombat] Error: Atacante u objetivo nulo para predicción.");
+        return {
+            damageToAttacker: 0,
+            damageToDefender: 0,
+            attackerDies: false,
+            defenderDies: false,
+            attackerDiesInRetaliation: false,
+            log: "Error: Unidades inválidas para predicción."
+        };
+    }
+
+    let prediction = {
+        damageToAttacker: 0,
+        damageToDefender: 0,
+        attackerDies: false,
+        defenderDies: false,
+        attackerDiesInRetaliation: false, // El atacante muere por el contraataque
+        log: []
+    };
+
+    // --- Simulación del ataque del 'attacker' al 'defender' ---
+    let attackerAttackStat = attacker.attack || 0;
+    let defenderDefenseStat = (defender.defense || 0) * (defender.currentHealth / defender.maxHealth);
+    let defenderCurrentHealth = defender.currentHealth;
+
+    // Considerar bonos de terreno para el defensor (similar a applyDamage)
+    const defenderHexData = board[defender.r]?.[defender.c];
+    let terrainDefenseBonusDefender = 0;
+    let terrainRangedDefenseBonusDefender = 0;
+    if (defenderHexData && TERRAIN_TYPES[defenderHexData.terrain]) {
+        terrainDefenseBonusDefender = TERRAIN_TYPES[defenderHexData.terrain].defenseBonus || 0;
+        terrainRangedDefenseBonusDefender = TERRAIN_TYPES[defenderHexData.terrain].rangedDefenseBonus || 0;
+    }
+    defenderDefenseStat += terrainDefenseBonusDefender;
+    if ((attacker.attackRange || 1) > 1) { // Si el atacante es a distancia
+        defenderDefenseStat += terrainRangedDefenseBonusDefender;
+    }
+
+    // Considerar flanqueo (simplificado para predicción, asumiendo que no se puede predecir el flanqueo activo sin más lógica)
+    // Para una predicción precisa, se podría simular si el movimiento del atacante crea una situación de flanqueo,
+    // pero por ahora no aplicamos el flanqueo en la predicción a menos que `target.isFlanked` ya sea true en el estado actual.
+    // Esto se maneja en `applyDamage` real, pero aquí solo se tiene en cuenta si ya está flanqueada.
+    let effectiveAttackerAttack = attackerAttackStat * (attacker.currentHealth / attacker.maxHealth);
+    // Para predecir flanqueo, necesitarías una función `predictFlanking(attacker, defender)` que simule si la posición del atacante causaría flanqueo.
+    // Por simplicidad, no lo implementamos en la predicción por ahora, solo en el daño real.
+
+    let damageToDefenderCalc = Math.round(effectiveAttackerAttack - defenderDefenseStat);
+    if (damageToDefenderCalc < 0) damageToDefenderCalc = 0;
+    if (effectiveAttackerAttack > 0 && damageToDefenderCalc === 0) damageToDefenderCalc = 1; // Daño mínimo
+
+    prediction.damageToDefender = Math.min(damageToDefenderCalc, defenderCurrentHealth);
+    if (prediction.damageToDefender >= defenderCurrentHealth) {
+        prediction.defenderDies = true;
+    }
+    prediction.log.push(`Predicción: ${attacker.name} (Atk:${attackerAttackStat}) vs ${defender.name} (Def:${defenderDefenseStat}). Daño Def: ${prediction.damageToDefender}. Defensor muere: ${prediction.defenderDies}`);
+
+
+    // --- Simulación del contraataque del 'defender' al 'attacker' (si el defensor sobrevive y puede contraatacar) ---
+    if (!prediction.defenderDies) {
+        // ¿Puede el defensor contraatacar? (si tiene rango y no es un terreno intransitable)
+        const attackerHexData = board[attacker.r]?.[attacker.c]; // Para obtener el terreno del atacante para defensa
+        
+        // No puede contraatacar si está en agua o terreno intransitable
+        if (TERRAIN_TYPES[defenderHexData.terrain]?.isImpassableForLand || TERRAIN_TYPES[attackerHexData.terrain]?.isImpassableForLand) {
+             prediction.log.push(`Predicción Retaliación: No hay contraataque debido a terreno intransitable.`);
+        } else if (isValidAttack({ ...defender, hasAttacked: false }, attacker)) { // Pasar un clon sin hasAttacked para el chequeo de rango
+            let defenderAttackStat = (defender.attack || 0) * (defender.currentHealth / defender.maxHealth);
+            let attackerDefenseStat = (attacker.defense || 0) * (attacker.currentHealth / attacker.maxHealth);
+            let terrainDefenseBonusAttacker = 0;
+            let terrainRangedDefenseBonusAttacker = 0;
+            
+            if (attackerHexData && TERRAIN_TYPES[attackerHexData.terrain]) {
+                terrainDefenseBonusAttacker = TERRAIN_TYPES[attackerHexData.terrain].defenseBonus || 0;
+                terrainRangedDefenseBonusAttacker = TERRAIN_TYPES[attackerHexData.terrain].rangedDefenseBonus || 0;
+            }
+            attackerDefenseStat += terrainDefenseBonusAttacker;
+            // Si el contraataque es a distancia, aplicar bonus de defensa a distancia al atacante.
+            // Para la predicción, asumimos que el contraataque es un ataque "normal" desde el defensor.
+            if ((defender.attackRange || 1) > 1) { 
+                attackerDefenseStat += terrainRangedDefenseBonusAttacker;
+            }
+            
+            // Si el contraatacante (defensor) está en Colinas y es cuerpo a cuerpo, aplicar bonus de ataque.
+            let terrainMeleeAttackBonusDefender = 0;
+            if (defenderHexData && TERRAIN_TYPES[defenderHexData.terrain]) {
+                if (TERRAIN_TYPES[defenderHexData.terrain].name === "Colinas" && (defender.attackRange || 1) === 1) {
+                    terrainMeleeAttackBonusDefender = TERRAIN_TYPES[defenderHexData.terrain].meleeAttackBonus || 0;
+                }
+            }
+            defenderAttackStat += terrainMeleeAttackBonusDefender;
+
+
+            let effectiveDefenderAttack = defenderAttackStat;
+            let damageToAttackerCalc = Math.round(effectiveDefenderAttack - attackerDefenseStat);
+            if (damageToAttackerCalc < 0) damageToAttackerCalc = 0;
+            if (effectiveDefenderAttack > 0 && damageToAttackerCalc === 0) damageToAttackerCalc = 1;
+
+            prediction.damageToAttacker = Math.min(damageToAttackerCalc, attacker.currentHealth);
+            if (prediction.damageToAttacker >= attacker.currentHealth) {
+                prediction.attackerDiesInRetaliation = true; 
+                prediction.attackerDies = true; 
+            }
+            prediction.log.push(`Predicción Retaliación: ${defender.name} (Atk:${defenderAttackStat}) vs ${attacker.name} (Def:${attackerDefenseStat}). Daño Atk: ${prediction.damageToAttacker}. Atacante muere: ${prediction.attackerDiesInRetaliation}`);
+        } else {
+            prediction.log.push(`Predicción Retaliación: ${defender.name} no puede contraatacar (fuera de rango o condición inválida).`);
+        }
+    } else {
+        prediction.log.push(`Predicción Retaliación: ${defender.name} muere, no hay contraataque.`);
+    }
+    
+    // console.log(`%c[AI Predict Outcome] Para ${attacker.name} vs ${defender.name}:\n${prediction.log.join("\n")}`, "color: olive");
+    return prediction;
+}
 
 function handleReinforceUnitAction(unitToReinforce) {
     console.log("%c[Reinforce] Iniciando acción de refuerzo...", "color: darkviolet; font-weight:bold;");
-    // ... (tus validaciones iniciales para unitToReinforce, salud máxima, si ya actuó) ...
-    if (!unitToReinforce) { /* ... */ unitToReinforce = selectedUnit; if (!unitToReinforce) { /*...*/ return; } }
-    console.log(`[Reinforce] Intentando reforzar a: ${unitToReinforce.name}`);
-    if (unitToReinforce.currentHealth >= unitToReinforce.maxHealth) { /* ... mensaje y return ... */ }
-    if (gameState.currentPhase === 'play' && (unitToReinforce.hasMoved || unitToReinforce.hasAttacked)) { /* ... mensaje y return ... */ }
 
-    // --- NUEVA CONDICIÓN DE SUMINISTRO ---
-    if (typeof isHexSupplied !== "function") {
-        console.error("handleReinforceUnitAction: La función isHexSupplied no está definida.");
-        UIManager.showMessageTemporarily("Error interno: No se puede verificar el suministro.", 3000, true);
-        return;
-    }
-    
-    if (!isHexSupplied(unitToReinforce.r, unitToReinforce.c, unitToReinforce.player)) {
-        const msg = "La unidad no está suministrada (sin conexión por camino a ciudad/fortaleza propia).";
-        if(typeof logMessage === "function") logMessage(msg);
+    if (!unitToReinforce) { unitToReinforce = selectedUnit; if (!unitToReinforce) { logMessage("No hay unidad seleccionada para reforzar."); return; } }
+    console.log(`[Reinforce] Intentando reforzar a: ${unitToReinforce.name}`);
+    if (unitToReinforce.currentHealth >= unitToReinforce.maxHealth) { logMessage("La unidad ya tiene la salud máxima."); return; }
+
+     if (typeof isHexSuppliedForReinforce !== "function" || !isHexSuppliedForReinforce(unitToReinforce.r, unitToReinforce.c, unitToReinforce.player)) {
+        const msg = "La unidad no está en una Capital/Fortaleza propia o adyacente a una.";
+        logMessage(msg);
         UIManager.showMessageTemporarily(msg, 4000, true);
         return;
     }
-    // --- FIN NUEVA CONDICIÓN DE SUMINISTRO ---
-
+    
     const healthToRestore = unitToReinforce.maxHealth - unitToReinforce.currentHealth;
-    // ... (resto de tu lógica de cálculo de costo, como la tenías) ...
-    let baseUnitCostOro = 20; /* ... tu cálculo ... */
+    let baseUnitCostOro = 20; 
     const costFactorForFullHeal = 0.3; 
     let totalCost = Math.ceil(baseUnitCostOro * costFactorForFullHeal * (healthToRestore / unitToReinforce.maxHealth));
     totalCost = Math.max(1, totalCost); 
 
-    if (gameState.playerResources[gameState.currentPlayer].oro < totalCost) { /* ... mensaje y return ... */ }
+    if (gameState.playerResources[gameState.currentPlayer].oro < totalCost) { 
+        logMessage(`No tienes suficiente oro para reforzar. Necesitas ${totalCost} de oro.`);
+        return; 
+    }
 
     const confirmationMessage = `Reforzar ${unitToReinforce.name} por ${healthToRestore} HP costará ${totalCost} de oro. ¿Continuar?`;
     
     const performReinforcement = () => {
-        // ... (tu lógica de performReinforcement: deducir oro, curar, marcar actuada, actualizar UI) ...
         gameState.playerResources[gameState.currentPlayer].oro -= totalCost;
         unitToReinforce.currentHealth = unitToReinforce.maxHealth;
         if (gameState.currentPhase === 'play') {
@@ -1112,9 +1679,6 @@ function handleReinforceUnitAction(unitToReinforce) {
     }
 }
 
-// ---------------------------------------------------------------------------------
-// LÓGICA DE RETIRADA
-// ---------------------------------------------------------------------------------
 function findSafeRetreatHex(unit, attacker) {
     if (!unit) return null;
     const neighbors = getHexNeighbors(unit.r, unit.c);
@@ -1122,7 +1686,8 @@ function findSafeRetreatHex(unit, attacker) {
 
     for (const n_coord of neighbors) {
         const hexData = board[n_coord.r]?.[n_coord.c];
-        if (hexData && !hexData.unit) { // Casilla vacía
+        // Solo puede retirarse a hexágonos vacíos que no sean agua
+        if (hexData && !hexData.unit && !TERRAIN_TYPES[hexData.terrain]?.isImpassableForLand) { 
             // Prioridad 1: Casilla propia
             if (hexData.owner === unit.player) {
                 potentialRetreatHexes.push({ ...n_coord, priority: 1 });
@@ -1131,37 +1696,29 @@ function findSafeRetreatHex(unit, attacker) {
             else if (hexData.owner === null) {
                 potentialRetreatHexes.push({ ...n_coord, priority: 2 });
             }
-            // No retirarse a casilla enemiga directamente adyacente (a menos que no haya otra opción y se implemente)
         }
     }
 
-    // Filtrar hexes que estén en la Zona de Control del atacante (si se define)
-    // Por ahora, simplemente ordena por prioridad
     potentialRetreatHexes.sort((a,b) => a.priority - b.priority);
 
     if (potentialRetreatHexes.length > 0) {
-        // Podrías añadir lógica para evitar retirarse a un hex adyacente al 'attacker' si es posible
-        return potentialRetreatHexes[0]; // Devuelve el mejor hex seguro encontrado
+        return potentialRetreatHexes[0]; 
     }
     
     console.log(`[findSafeRetreatHex] ${unit.name} no encontró hex para retirarse.`);
     return null;
 }
 
-function handlePostBattleRetreat(unit, attacker) { // Attacker es quien causó el chequeo de moral/retirada
+function handlePostBattleRetreat(unit, attacker) { 
     if (!unit || unit.currentHealth <= 0) return;
 
-    // Lógica de chequeo de moral (ejemplo simple)
-    // Podrías tener una propiedad 'moral' en la unidad o calcularla.
-    // Aquí, un simple chequeo de salud.
     const healthPercentage = unit.currentHealth / unit.maxHealth;
     let mustRetreat = false;
 
-    if (healthPercentage < 0.25) { // Por debajo del 25% de salud
+    if (healthPercentage < 0.25) { 
         mustRetreat = true;
         if (typeof logMessage === "function") logMessage(`${unit.name} tiene muy poca salud (${Math.round(healthPercentage*100)}%)! Chequeando retirada.`);
     }
-    // Podrías añadir chequeos si está flanqueada, superada en número, etc.
 
     if (mustRetreat) {
         const hexData = board[unit.r]?.[unit.c];
@@ -1176,9 +1733,6 @@ function handlePostBattleRetreat(unit, attacker) { // Attacker es quien causó e
         if (retreatHexCoords) {
             if (typeof logMessage === "function") logMessage(`${unit.name} se retira a (${retreatHexCoords.r},${retreatHexCoords.c})!`);
             
-            // Lógica para mover la unidad al hex de retirada.
-            // Esto debería ser un movimiento especial que no consume acción normal
-            // y puede tener diferentes reglas. Por simplicidad, aquí solo actualizamos el estado.
             const fromR = unit.r;
             const fromC = unit.c;
 
@@ -1195,273 +1749,1170 @@ function handlePostBattleRetreat(unit, attacker) { // Attacker es quien causó e
                 renderSingleHexVisuals(fromR, fromC);
                 renderSingleHexVisuals(unit.r, unit.c);
             }
-            // Si la unidad retirada era la seleccionada, actualizar la UI
             if (selectedUnit && selectedUnit.id === unit.id) {
                 if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
-                if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights(); // Ya no puede actuar
+                if (typeof UIManager !== 'undefined' && UIManager.clearHighlights) UIManager.clearHighlights(); 
             }
 
         } else {
             if (typeof logMessage === "function") logMessage(`${unit.name} no pudo encontrar un lugar seguro para retirarse y debe luchar! (O se rinde/destruye si la moral es 0)`);
-            // Aquí podrías implementar rendición o destrucción si no hay retirada posible.
         }
     }
 }
 
-// ---------------------------------------------------------------------------------
-// LÓGICA DE FLANQUEO
-// ---------------------------------------------------------------------------------
 function applyFlankingPenalty(targetUnit, mainAttacker) {
     if (!targetUnit || !mainAttacker || !board) return;
 
-    targetUnit.isFlanked = false; // Resetear por defecto
+    targetUnit.isFlanked = false; 
     let flankingAttackersCount = 0;
     const neighbors = getHexNeighbors(targetUnit.r, targetUnit.c);
 
     for (const n_coord of neighbors) {
         const neighborUnit = getUnitOnHex(n_coord.r, n_coord.c);
-        // Un enemigo está flanqueando si:
-        // 1. Es una unidad
-        // 2. No es del mismo jugador que la unidad objetivo
-        // 3. No es el atacante principal (ya que ese es el ataque directo, no el de flanqueo)
-        // 4. (Opcional) Puede atacar a la unidad objetivo (ej. está en su rango de ataque y tiene línea de visión)
-        if (neighborUnit && 
-            neighborUnit.player !== targetUnit.player && 
-            neighborUnit.id !== mainAttacker.id) {
-            
-            // Para un chequeo más avanzado, verificar si esta unidad flanqueadora PUEDE atacar al objetivo
-            // if (isValidAttack(neighborUnit, targetUnit)) { // ¡CUIDADO CON RECURSIÓN INFINITA SI isValidAttack LLAMA A ESTO!
-            //    flankingAttackersCount++;
-            // }
-            // Por ahora, una simplificación: si es un enemigo adyacente (que no es el atacante principal), cuenta.
+        if (neighborUnit && neighborUnit.player !== targetUnit.player && neighborUnit.id !== mainAttacker.id) {
             flankingAttackersCount++;
         }
     }
 
     if (flankingAttackersCount > 0) {
-        targetUnit.isFlanked = true; // Esta propiedad se usaría en applyDamage
-        console.log(`[Flanking] ${targetUnit.name} está flanqueada por ${flankingAttackersCount} unidad(es) enemiga(s) adicional(es).`);
-        if (typeof logMessage === "function") logMessage(`${targetUnit.name} está siendo flanqueada! (- Defensa)`);
+        targetUnit.isFlanked = true;
+        const moraleLoss = 10;
+        targetUnit.morale = Math.max(0, targetUnit.morale - moraleLoss);
+        
+        // <<< MODIFICACIÓN: Un único mensaje claro >>>
+        logMessage(`¡${targetUnit.name} es flanqueada, sufre daño extra y pierde ${moraleLoss} de moral!`);
     }
 }
 
-function applyDamage(attacker, target) {
-    if (!attacker || !target) { 
-        console.error("[applyDamage] Error: Atacante u objetivo nulo.");
-        return 0; 
-    }
-    // Asumimos que attacker y target tienen propiedades 'attack' y 'defense'
-    let baseDamage = attacker.attack || 0; 
-    let defensePower = target.defense || 0; 
-    
-    const targetHexData = board[target.r]?.[target.c];
-    let terrainDefenseBonus = 0;
-    // ASUME que TERRAIN_TYPES está definido en constants.js y tiene una propiedad defenseBonus
-    if (targetHexData && targetHexData.terrain && typeof TERRAIN_TYPES !== 'undefined' && TERRAIN_TYPES[targetHexData.terrain]) {
-        terrainDefenseBonus = TERRAIN_TYPES[targetHexData.terrain].defenseBonus || 0;
-    }
-    defensePower += terrainDefenseBonus;
-
-    let flankingMultiplier = target.isFlanked ? 1.25 : 1.0; // Asume que target.isFlanked se establece antes
-    let effectiveAttack = baseDamage * flankingMultiplier;
-    let damageDealt = Math.round(effectiveAttack - defensePower);
-    
-    if (damageDealt < 0) {
-        damageDealt = 0; // No se puede curar con un ataque
-    } else if (effectiveAttack > 0 && damageDealt === 0) {
-        damageDealt = 1; // Daño mínimo si el ataque no fue nulo pero la defensa lo igualó/superó
-    }
-
-    damageDealt = Math.min(damageDealt, target.currentHealth); // No hacer más daño que la salud restante
-    
-    target.currentHealth -= damageDealt; // <<< APLICAR EL DAÑO
-    
-    console.log(`[applyDamage] ${attacker.name} (Atk:${baseDamage}) vs ${target.name} (Def:${defensePower}). Daño: ${damageDealt}. ${target.name} Salud restante: ${target.currentHealth}`);
-    if (typeof logMessage === "function" && damageDealt > 0) {
-        logMessage(`${attacker.name} inflige ${damageDealt} daño a ${target.name}.`);
-    }
-    
-    target.isFlanked = false; // Resetear estado de flanqueo
-    return damageDealt;
-}
-
-async function attackUnit(attacker, defender) {
-    if (!attacker || !defender) { 
-        console.error("attackUnit: Atacante o defensor nulo."); 
-        return; 
-    }
-    if (gameState.currentPhase === 'play' && attacker.player === gameState.currentPlayer && attacker.hasAttacked) {
-        if (typeof logMessage === "function") logMessage(`${attacker.name} ya ha atacado este turno.`);
-        return; 
-    }
-    if ((attacker.attack || 0) <= 0 && !(attacker.canAttackWithoutDamage)) { // canAttackWithoutDamage es hipotético
-         if (typeof logMessage === "function") logMessage(`${attacker.name} no puede atacar (ataque 0).`);
+async function handleUnitDestroyed(destroyedUnit, victorUnit) {
+    if (!destroyedUnit) {
+        console.warn("[handleUnitDestroyed] Intento de destruir una unidad nula.");
         return;
     }
 
-    console.log(`[Combat] ${attacker.name} (J${attacker.player}) ataca a ${defender.name} (J${defender.player})`);
-    if (typeof logMessage === "function") logMessage(`${attacker.name} ataca a ${defender.name}!`);
-    
-    if (typeof applyFlankingPenalty === "function") applyFlankingPenalty(defender, attacker);
+    // Determinar si es una destrucción por combate o por otras causas (fusión, rendición)
+    const isCombatDestruction = victorUnit && victorUnit.player !== destroyedUnit.player;
 
-    let damageDealtToDefender = 0;
-    if (typeof applyDamage === "function") { // Comprobar si applyDamage existe
-        damageDealtToDefender = applyDamage(attacker, defender); // LLAMAR A applyDamage
-    } else {
-        console.error("¡ERROR CRÍTICO! La función applyDamage no está definida. No se puede aplicar daño.");
-        // Aquí no se hace nada más si applyDamage no existe, el combate no procede correctamente.
-        return; // Salir si no se puede aplicar daño
-    }
+    console.log(`[handleUnitDestroyed] Destruyendo ${destroyedUnit.name}. ¿Por combate? ${isCombatDestruction}`);
     
-    if (typeof showCombatAnimation === "function") await showCombatAnimation(defender.element, attacker.element, damageDealtToDefender > 0 ? 'melee_hit' : 'miss');
-    
-    if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) {
-        UIManager.updateUnitStrengthDisplay(defender); // Actualizar UI del defensor
-    }
+    if (isCombatDestruction) {
+        logMessage(`¡${destroyedUnit.name} ha sido destruida por ${victorUnit.name}!`);
 
-    if (defender.currentHealth <= 0) {
-        if (typeof handleUnitDestroyed === "function") {
-            handleUnitDestroyed(defender, attacker); // Llamar a destruir unidad
+        if (gameState.isTutorialActive && destroyedUnit.player === 2) {
+             // Notifica que un enemigo (jugador 2 en el tutorial) ha sido derrotado
+             TutorialManager.notifyActionCompleted('enemy_defeated');
         }
-    } else {
-        // Lógica de Contraataque (asumiendo que tu lógica de contraataque aquí es correcta)
-        const defenderCanCounterAttack = gameState.currentPhase === 'play' && (!defender.hasAttacked || defender.player !== gameState.currentPlayer || defender.canRetaliateIgnoringAction);
-        if (defenderCanCounterAttack && typeof isValidAttack === "function" && isValidAttack(defender, attacker)) { 
-            if (typeof logMessage === "function") logMessage(`${defender.name} contraataca!`);
-            if (typeof applyFlankingPenalty === "function") applyFlankingPenalty(attacker, defender);
-            let damageDealtToAttacker = 0;
-            if (typeof applyDamage === "function") { // Comprobar de nuevo para contraataque
-                damageDealtToAttacker = applyDamage(defender, attacker);
-            } else { console.error("¡ERROR CRÍTICO en contraataque! applyDamage no definida."); }
-            if (typeof showCombatAnimation === "function") await showCombatAnimation(attacker.element, defender.element, damageDealtToAttacker > 0 ? 'counter_attack_hit' : 'miss');
-            if (typeof UIManager !== 'undefined' && UIManager.updateUnitStrengthDisplay) UIManager.updateUnitStrengthDisplay(attacker);
-            if (attacker.currentHealth <= 0) {
-                if (typeof handleUnitDestroyed === "function") handleUnitDestroyed(attacker, defender);
+
+        if (typeof Chronicle !== 'undefined') {
+            Chronicle.logEvent('unit_destroyed', { destroyedUnit, victorUnit });
+        }
+
+        // --- INICIO: LÓGICA DE HABILIDADES DE FIN DE BATALLA ---
+        let xpGainBonusPercent = 0;
+        let bookDropBonusChance = 0;
+        let fragmentDropBonusChance = 0;
+
+        if (victorUnit.commander) {
+            const commanderData = COMMANDERS[victorUnit.commander];
+            const playerProfile = PlayerDataManager.getCurrentPlayer();
+            const heroInstance = playerProfile?.heroes.find(h => h.id === victorUnit.commander);
+
+            if (commanderData && heroInstance) {
+                commanderData.skills.forEach((skill, index) => {
+                    const skillDef = SKILL_DEFINITIONS[skill.skill_id];
+                    const starsRequired = index + 1;
+                    if (heroInstance.stars >= starsRequired && skillDef?.scope === 'fin') {
+                        const skillLevel = heroInstance.skill_levels[index] || (index === 0 ? 1 : 0);
+                        if (skillLevel > 0 && skill.scaling_override) {
+                            const bonusValue = skill.scaling_override[skillLevel - 1];
+                            if (skillDef.effect.stat === 'xp_gain') {
+                                xpGainBonusPercent += bonusValue;
+                            } else if (skillDef.effect.stat === 'book_drop') {
+                                bookDropBonusChance += bonusValue;
+                            } else if (skillDef.effect.stat === 'fragment_drop') {
+                                fragmentDropBonusChance += bonusValue;
+                            }
+                        }
+                    }
+                });
             }
         }
+        // --- FIN: LÓGICA DE HABILIDADES ---
+
+        // 1. Recompensa de Experiencia (XP) para el vencedor (Ahora con Bonus)
+        let experienceGained = 10 + Math.floor((destroyedUnit.maxHealth || 0) / 10);
+
+        // <<== INICIO DE LA INTEGRACIÓN DE TALENTOS (XP) ==>>
+        const victorTalentBonuses = calculateTalentBonuses(victorUnit);
+        if (victorTalentBonuses && victorTalentBonuses.xp_gain_percentage) {
+            const xpBonus = experienceGained * (victorTalentBonuses.xp_gain_percentage / 100);
+            experienceGained += xpBonus;
+            logMessage(`¡Bonus de Talento! (+${victorTalentBonuses.xp_gain_percentage}% XP)`, "success");
+        }
+        // <<== FIN DE LA INTEGRACIÓN DE TALENTOS (XP) ==>>
+
+        if (xpGainBonusPercent > 0) {
+            const xpBonus = experienceGained * (xpGainBonusPercent / 100);
+            experienceGained += xpBonus;
+            logMessage(`¡Bonus de ${victorUnit.commander}! (+${xpGainBonusPercent}% XP)`, "success");
+        }
+        experienceGained = Math.round(experienceGained);
+        victorUnit.experience = (victorUnit.experience || 0) + experienceGained;
+        logMessage(`${victorUnit.name} gana ${experienceGained} XP por la victoria.`);
+        checkAndApplyLevelUp(victorUnit);
+
+        // 2. Recompensa de Oro por la victoria (Intacto)
+        const goldGained = REGIMENT_TYPES[destroyedUnit.regiments[0]?.type]?.goldValueOnDestroy || 10;
+        if (goldGained > 0 && gameState.playerResources[victorUnit.player]) {
+            gameState.playerResources[victorUnit.player].oro += goldGained;
+            logMessage(`${victorUnit.name} obtiene ${goldGained} de oro por saquear los restos.`);
+        }
+        
+        // 3. Recompensas de Perfil (Libros y Fragmentos con Probabilidad Aumentada)
+        if (PlayerDataManager.currentPlayer) {
+            const playerInventory = PlayerDataManager.currentPlayer.inventory;
+
+            // Recompensa de Libros de XP
+            const baseBookChance = 35; // 25% de probabilidad base de obtener un libro
+            const finalBookChance = baseBookChance + bookDropBonusChance;
+            if (Math.random() * 100 < finalBookChance) {
+                playerInventory.xp_books = (playerInventory.xp_books || 0) + Math.floor(Math.random() * 3) + 1;;
+                
+                logMessage(`¡Recompensa! Has obtenido 1 Libro de XP (Prob: ${finalBookChance.toFixed(0)}%).`, "success");
+                if(UIManager.showRewardToast) UIManager.showRewardToast("+1 Libro de XP", "📖");
+            }
+            
+            // Recompensa de Fragmentos (Ahora con Probabilidad Aumentada)
+            const baseFragmentChance = 20; // 20% de probabilidad base
+            const finalFragmentChance = baseFragmentChance + fragmentDropBonusChance;
+            if (Math.random() * 100 < finalFragmentChance) {
+                const rewardPool = Object.keys(COMMANDERS).filter(id => COMMANDERS[id].rarity === "Común" || COMMANDERS[id].rarity === "Raro");
+                if(rewardPool.length > 0) {
+                    const randomHeroId = rewardPool[Math.floor(Math.random() * rewardPool.length)];
+                    const fragmentsToAdd = Math.floor(Math.random() * 3) + 1;
+                    PlayerDataManager.addFragmentsToHero(randomHeroId, fragmentsToAdd);
+                    const heroData = COMMANDERS[randomHeroId];
+                    if(UIManager.showRewardToast) UIManager.showRewardToast(`+${fragmentsToAdd} Fragmentos de ${heroData.name}`, heroData.sprite);
+                }
+            
+            }
+            
+            // <<== INICIO DE LA NUEVA LÓGICA: OBTENCIÓN DE EQUIPO ==>>
+            const baseEquipmentChance = 15; // 15% de probabilidad base de obtener una pieza de equipo
+            if (Math.random() * 100 < baseEquipmentChance) {
+                
+                // Determinar la rareza del equipo obtenido (ej: 70% Común, 25% Raro, 5% Épico)
+                const rarityRoll = Math.random() * 100;
+                let rarityToDrop;
+                if (rarityRoll < 5) rarityToDrop = "Épico";
+                else if (rarityRoll < 30) rarityToDrop = "Raro";
+                else rarityToDrop = "Común";
+
+                // Obtener todos los objetos de esa rareza del catálogo
+                const possibleItems = Object.values(EQUIPMENT_DEFINITIONS).filter(item => item.rarity === rarityToDrop);
+                
+                if (possibleItems.length > 0) {
+                    // Elegir un objeto al azar de la rareza seleccionada
+                    const droppedItem = possibleItems[Math.floor(Math.random() * possibleItems.length)];
+
+                    // En lugar de crear una instancia, añadimos fragmentos
+                    const fragmentsAmount = Math.floor(Math.random() * 2) + 1; // 1-2 fragmentos por victoria
+                    PlayerDataManager.addEquipmentFragments(droppedItem.id, fragmentsAmount);
+                    
+                    if(UIManager.showRewardToast) UIManager.showRewardToast(`+${fragmentsAmount} Fragmentos de ${droppedItem.name}`, droppedItem.icon);
+                }
+            }
+
+            PlayerDataManager.saveCurrentPlayer();
+        }
+
+        // Lógica de Moral y Objeto de bonificación
+        const victoryMoraleBonus = 20;
+        victorUnit.morale = Math.min((victorUnit.maxMorale || 100), (victorUnit.morale || 50) + victoryMoraleBonus);
+        logMessage(`¡La moral de ${victorUnit.name} sube a ${victorUnit.morale} por la victoria decisiva!`);
+
+        // === FASE B: Añadimos la lógica del objeto de bonificación ======
+
+        const hexOfUnit = board[destroyedUnit.r]?.[destroyedUnit.c];
+        if (hexOfUnit) {
+            hexOfUnit.destroyedUnitBonus = { experience: 10, morale: 15, claimedBy: null };
+            renderSingleHexVisuals(destroyedUnit.r, destroyedUnit.c); 
+        }
+    } // Fin de if (isCombatDestruction)
+    
+    // --- LÓGICA DE ANIMACIÓN Y ELIMINACIÓN (Intacta) ---
+    if (destroyedUnit.element) {
+        const explosionEl = document.createElement('div');
+        explosionEl.classList.add('explosion-animation');
+        if (domElements?.gameBoard && destroyedUnit.element) {
+            const boardRect = domElements.gameBoard.getBoundingClientRect();
+            const unitRect = destroyedUnit.element.getBoundingClientRect();
+            explosionEl.style.left = `${(unitRect.left - boardRect.left) + unitRect.width / 2}px`;
+            explosionEl.style.top = `${(unitRect.top - boardRect.top) + unitRect.height / 2}px`;
+            domElements.gameBoard.appendChild(explosionEl);
+            setTimeout(() => explosionEl.remove(), 1200);
+        }
+            // Bloqueo del tutorial (Movido arriba para mayor claridad)
+    if (window.TUTORIAL_MODE_ACTIVE === true && destroyedUnit.player === 2) {
+        console.warn("[TUTORIAL] Bloqueada la destrucción de la unidad ENEMIGA de práctica.");
+        TutorialManager.notifyActionCompleted('flank_attack_completed');
+        if (destroyedUnit.element) destroyedUnit.element.style.display = 'none'; 
+        return;
     }
-
-    // Marcar al atacante como que ya actuó (SOLO si es el jugador actual y la batalla está en juego)
-    if (gameState.currentPhase === 'play' && attacker.currentHealth > 0 && attacker.player === gameState.currentPlayer) {
-        attacker.hasAttacked = true; // <<< ESENCIAL
-        console.log(`[Combat] ${attacker.name} completó su acción de ataque. hasAttacked: ${attacker.hasAttacked}`);
-    }
-
-    if (attacker.currentHealth > 0 && typeof handlePostBattleRetreat === "function") handlePostBattleRetreat(attacker, defender);
-    if (defender.currentHealth > 0 && typeof handlePostBattleRetreat === "function") handlePostBattleRetreat(defender, attacker);
-
-    if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) {
-        UIManager.updateSelectedUnitInfoPanel(); 
+        // Esto hace que la función espere 500ms antes de continuar, dando tiempo a que la animación empiece.
+        await new Promise(resolve => setTimeout(resolve, 500));
     }
     
-    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") { if(checkVictory()) return; }
-
-    if (selectedUnit && selectedUnit.id === attacker.id && attacker.currentHealth > 0) {
-        if (typeof highlightPossibleActions === "function") highlightPossibleActions(attacker);
-    } else if (selectedUnit && selectedUnit.id === attacker.id && attacker.currentHealth <= 0) { 
-        if (typeof deselectUnit === "function") deselectUnit(); 
+    // --- Proceso de eliminación de la unidad ---
+    if (destroyedUnit.element) destroyedUnit.element.remove();
+    const hexOfUnitDestroyed = board[destroyedUnit.r]?.[destroyedUnit.c];
+    if (hexOfUnitDestroyed && hexOfUnitDestroyed.unit?.id === destroyedUnit.id) {
+        hexOfUnitDestroyed.unit = null;
+    }
+    const index = units.findIndex(u => u.id === destroyedUnit.id);
+    if (index > -1) units.splice(index, 1);
+    if (selectedUnit?.id === destroyedUnit.id) {
+        selectedUnit = null;
+        if (UIManager) UIManager.hideContextualPanel();
+    }
+    if (isCombatDestruction && !gameState.isTutorialActive) { // <<== Añadida comprobación de tutorial aquí también
+        if (typeof checkVictory === 'function') checkVictory();
     }
 }
-// ---------------------------------------------------------------------------------
-// FUNCIÓN DE RESETEO DE TURNO
-// ---------------------------------------------------------------------------------
-function resetUnitsForNewTurn(playerNumber) { 
-    console.log(`%c[TurnStart] Reseteando unidades para Jugador ${playerNumber}`, "color: blue; font-weight: bold;");
-    if (!units || !Array.isArray(units)) { console.error("[TurnStart] 'units' no disponible."); return; }
-    units.forEach(unit => {
-        if (unit.player === playerNumber) {
-            if (typeof unit.movement !== 'number' || unit.movement <= 0) {
-                const unitTypeMovement = (typeof UNIT_TYPES !== 'undefined' && UNIT_TYPES[unit.type]) ? UNIT_TYPES[unit.type].movement : null;
-                unit.movement = unitTypeMovement || 3;
-            }
-            // CORREGIDO AQUÍ PARA USAR unit.attackRange consistente con REGIMENT_TYPES
-            if (typeof unit.attackRange !== 'number' || unit.attackRange < 0) {
-                const unitTypeAttackRange = (typeof UNIT_TYPES !== 'undefined' && UNIT_TYPES[unit.type]) ? UNIT_TYPES[unit.type].attackRange : undefined;
-                console.warn(`[TurnStart] ${unit.name} (tipo ${unit.type}) no tiene 'attackRange' válido (valor: ${unit.attackRange}). Usando ${unitTypeAttackRange !== undefined ? unitTypeAttackRange : ((unit.attack||0) > 0 ? 1 : 0)}.`);
-                unit.attackRange = unitTypeAttackRange !== undefined ? unitTypeAttackRange : ((unit.attack||0) > 0 ? 1 : 0);
-            }
 
-            unit.currentMovement = unit.movement;
-            unit.hasMoved = false;
-            unit.hasAttacked = false;
-            unit.isFlanked = false; 
-            // console.log(`   L-> ${unit.name} reseteada: mov=${unit.currentMovement}, attackRange=${unit.attackRange}`);
-        }
-    });
-    if (typeof deselectUnit === "function") deselectUnit(); 
-    if (typeof UIManager !== 'undefined') {
-        if (UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel(); 
-        if (UIManager.updatePlayerAndPhaseInfo) UIManager.updatePlayerAndPhaseInfo(); 
-    }
-}
-
-// ---------------------------------------------------------------------------------
-// FUNCIÓN DESHACER
-// ---------------------------------------------------------------------------------
 async function undoLastUnitMove(unit) {
     if (!unit || !unit.lastMove) {
         logMessage("No hay movimiento para deshacer en esta unidad.");
         return;
     }
-    if (unit.hasAttacked) { // No permitir deshacer si atacó después del movimiento.
+    if (unit.hasAttacked) { 
         logMessage("No se puede deshacer: la unidad ya ha atacado.");
         return;
     }
-    if (unit.player !== gameState.currentPlayer) { // Solo deshacer para el jugador actual.
+    if (unit.player !== gameState.currentPlayer) { 
         logMessage("No puedes deshacer el movimiento de una unidad enemiga.");
         return;
     }
 
     const prevR = unit.lastMove.fromR;
     const prevC = unit.lastMove.fromC;
-    const currentR = unit.r;
+    const currentR = unit.r; 
     const currentC = unit.c;
 
     logMessage(`Deshaciendo movimiento de ${unit.name} de (${currentR},${currentC}) a (${prevR},${prevC}).`);
 
-    // 1. Liberar el hexágono actual
     if (board[currentR]?.[currentC]) {
         board[currentR][currentC].unit = null;
-        // Restaurar el dueño del hexágono si cambió
-        // Simplificado: si el hexágono era neutral y ahora es nuestro, al deshacer debería volver a ser neutral.
-        // Si tienes un sistema más complejo de propiedad de hexágonos al mover, necesitarías registrar el owner original.
-        if (board[currentR][currentC].owner === unit.player && !board[currentR][currentC].isCity) { // Si no es ciudad, asumimos que puede volver a ser neutral.
-            // Para ser preciso, necesitaríamos guardar el `owner` original del hex en `lastMove`.
-            // Por ahora, asumimos que si no era ciudad y no era de IA (que no mueve), es neutral.
-            // O una solución más simple: el owner del hexágono solo cambia cuando una unidad se asienta.
-            // No revertimos el owner aquí a menos que sea crucial para la UI/juego.
-        }
+        board[currentR][currentC].owner = unit.lastMove.movedToHexOriginalOwner;
         if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(currentR, currentC);
     }
 
-    // 2. Mover la unidad a su posición anterior
     unit.r = prevR;
     unit.c = prevC;
     
-    // 3. Asignar la unidad al hexágono anterior
     if (board[prevR]?.[prevC]) {
         board[prevR][prevC].unit = unit;
-        // Si el hexágono anterior era propiedad del jugador, asegurarlo.
-        if (board[prevR][prevC].owner !== unit.player) {
-             board[prevR][prevC].owner = unit.player;
-             if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(prevR, prevC);
-        }
+        if (typeof renderSingleHexVisuals === "function") renderSingleHexVisuals(prevR, prevC);
     }
 
-    // 4. Restaurar el estado de movimiento y ataque
     unit.currentMovement = unit.lastMove.initialCurrentMovement;
     unit.hasMoved = unit.lastMove.initialHasMoved;
     unit.hasAttacked = unit.lastMove.initialHasAttacked;
     
-    // 5. Limpiar el registro del último movimiento
     unit.lastMove = null;
 
-    // 6. Actualizar la UI
     if (typeof positionUnitElement === "function") positionUnitElement(unit);
     if (typeof UIManager !== 'undefined' && UIManager.updateSelectedUnitInfoPanel) UIManager.updateSelectedUnitInfoPanel();
     if (typeof UIManager !== 'undefined' && UIManager.updateAllUIDisplays) UIManager.updateAllUIDisplays();
-    if (typeof highlightPossibleActions === "function") highlightPossibleActions(unit); // Resaltar de nuevo las acciones disponibles
+    if (typeof highlightPossibleActions === "function") highlightPossibleActions(unit); 
 }
 
+function checkAndProcessBrokenUnit(unit) {
+    if (!unit || unit.morale > 0) {
+        return false; // No está rota, no hacemos nada.
+    }
 
-console.log("unit_Actions.js CARGA COMPLETA (Corregido para usar 'attackRange')");
+    // Si llegamos aquí, la unidad está rota.
+    logMessage(`¡${unit.name} tiene la moral rota!`, "error");
+
+    unit.hasMoved = true;
+    unit.hasAttacked = true;
+
+    const safeHavens = gameState.cities.filter(c => c.owner === unit.player).sort((a,b) => hexDistance(unit.r, unit.c, a.r, a.c) - hexDistance(unit.r, unit.c, b.r, b.c));
+    const nearestSafeHaven = safeHavens[0] || null;
+
+    let retreatHex = null;
+    if (nearestSafeHaven) {
+        const neighbors = getHexNeighbors(unit.r, unit.c);
+        let bestNeighbor = null;
+        let minDistance = hexDistance(unit.r, unit.c, nearestSafeHaven.r, nearestSafeHaven.c);
+
+        for (const n of neighbors) {
+            if (!getUnitOnHex(n.r, n.c) && !TERRAIN_TYPES[board[n.r]?.[n.c]?.terrain]?.isImpassableForLand) {
+                const dist = hexDistance(n.r, n.c, nearestSafeHaven.r, nearestSafeHaven.c);
+                if (dist < minDistance) {
+                    minDistance = dist;
+                    bestNeighbor = n;
+                }
+            }
+        }
+        retreatHex = bestNeighbor;
+    }
+
+    if (retreatHex) {
+        logMessage(`¡${unit.name} rompe filas y huye hacia (${retreatHex.r}, ${retreatHex.c})!`);
+        const tempUnitForMove = { ...unit, currentMovement: 1, hasMoved: false };
+        moveUnit(tempUnitForMove, retreatHex.r, retreatHex.c);
+        unit.r = retreatHex.r;
+        unit.c = retreatHex.c;
+    } else {
+        logMessage(`¡${unit.name} está rodeada y sin moral! ¡La unidad se rinde!`, "error");
+        handleUnitDestroyed(unit, null);
+    }
+    
+    // Deseleccionar si era la unidad activa
+    if (selectedUnit && selectedUnit.id === unit.id) {
+        deselectUnit();
+        UIManager.hideContextualPanel();
+    }
+
+    return true; // La unidad estaba rota y se ha procesado.
+}
+
+function calculateDivisionDiscipline(unit) {
+    if (!unit.regiments || unit.regiments.length === 0) {
+        return 0;
+    }
+
+    // 1. Bonus base por presencia de Cuartel General
+    const hasHQ = unit.regiments.some(r => REGIMENT_TYPES[r.type]?.provides_morale_boost);
+    let discipline = hasHQ ? 20 : 0; // Bonus base de 20 puntos por tener un HQ
+
+    // 2. Bonus por el nivel de la división (promedio de la experiencia de los regimientos)
+    const divisionLevel = unit.level || 0;
+    if (XP_LEVELS[divisionLevel]) {
+        discipline += XP_LEVELS[divisionLevel].disciplineBonus || 0;
+    }
+
+    // La disciplina no puede superar el 75%
+    return Math.min(discipline, 75);
+}
+
+// Verifica si la unidad subió de nivel y aplica los cambios.
+function checkAndApplyLevelUp(unit) {
+    if (!unit || !XP_LEVELS || (unit.level !== undefined && XP_LEVELS[unit.level]?.nextLevelXp === 'Max')) {
+        return false;
+    }
+
+    unit.level = unit.level ?? 0; // Si no tiene nivel, es 0
+    const currentLevelData = XP_LEVELS[unit.level];
+    const nextLevelXP = currentLevelData.nextLevelXp;
+
+    if (nextLevelXP !== 'Max' && unit.experience >= nextLevelXP) {
+        unit.level++;
+        const newLevelData = XP_LEVELS[unit.level];
+        logMessage(`¡${unit.name} ha subido a Nivel ${unit.level} (${newLevelData.currentLevelName})!`);
+        recalculateUnitStats(unit); // Recalcular stats para aplicar los bonus
+        return true;
+    }
+    return false;
+}
+
+// Recalcula TODOS los stats de una unidad (ataque, defensa, etc.) aplicando los bonus de nivel.
+function recalculateUnitStats(unit) {
+    if (!unit) return;
+
+    // 1. Llama a la nueva función principal. Esta calculará y aplicará todos los bonus
+    // de regimientos, civilización y el HÉROE recién asignado al objeto 'unit'.
+    calculateRegimentStats(unit);
+
+    // 2. Ahora, sobre los stats ya calculados, añadimos el bonus de NIVEL de la división.
+    const levelBonuses = XP_LEVELS[unit.level || 0];
+    if (levelBonuses) {
+        unit.attack += (levelBonuses.attackBonus || 0);
+        unit.defense += (levelBonuses.defenseBonus || 0);
+    }
+
+    unit.discipline = calculateDivisionDiscipline(unit);
+    console.log(`Stats recalculados para ${unit.name} (Nivel ${unit.level}): Atk=${unit.attack}, Def=${unit.defense}`);
+}
+
+function handlePillageAction() {
+    RequestPillageAction();
+}
+
+/**
+ * [Función de Ejecución] Contiene la lógica real del saqueo.
+ * Es llamada por RequestPillageAction (local) o por el receptor de red.
+ * @param {object} pillagerUnit - La unidad que realiza el saqueo.
+ */
+function _executePillageAction(pillagerUnit) {
+    if (!pillagerUnit) return;
+
+    const hex = board[pillagerUnit.r]?.[pillagerUnit.c];
+
+    // --- Validaciones de Lógica ---
+    if (!hex || hex.owner === null || hex.owner === pillagerUnit.player) {
+        logMessage("No se puede saquear un territorio propio o neutral.", "error");
+        return;
+    }
+    if (pillagerUnit.hasAttacked || pillagerUnit.hasMoved) {
+        logMessage("Esta unidad ya ha actuado este turno.", "error");
+        return;
+    }
+
+    let goldGained = 15; // Ganancia base por saquear
+    
+    // Si hay una estructura, se daña y se obtiene más oro.
+    if (hex.structure) {
+        logMessage(`${pillagerUnit.name} está saqueando la estructura ${hex.structure}!`);
+        // Lógica futura: podrías dañar la estructura en lugar de destruirla.
+        // Por ahora, la destruimos.
+        hex.structure = null;
+        goldGained += 50;
+    } else {
+        logMessage(`${pillagerUnit.name} está saqueando el territorio en (${hex.r}, ${hex.c})!`);
+    }
+
+    // El hexágono pierde estabilidad
+    hex.estabilidad = Math.max(0, hex.estabilidad - 2);
+
+    // Añadir el oro al jugador
+    if (gameState.playerResources[pillagerUnit.player]) {
+        gameState.playerResources[pillagerUnit.player].oro += goldGained;
+    }
+
+    // Consumir la acción de la unidad
+    pillagerUnit.hasAttacked = true;
+    pillagerUnit.hasMoved = true; 
+
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('pillage_completed');
+    }
+
+    logMessage(`¡Saqueo exitoso! Obtienes ${goldGained} de oro. El territorio pierde estabilidad.`);
+
+    // Actualizar la UI
+    renderSingleHexVisuals(pillagerUnit.r, pillagerUnit.c);
+    if (UIManager) {
+        UIManager.updateAllUIDisplays();
+        UIManager.hideContextualPanel();
+    }
+}
+
+function handleDisbandUnit(unitToDisband) {
+    if (!unitToDisband) return;
+
+    const confirmationMessage = `¿Estás seguro de que quieres disolver "${unitToDisband.name}"? Se recuperará el 50% de su coste en oro.`;
+    if (window.confirm(confirmationMessage)) {
+        RequestDisbandUnit(unitToDisband);
+    }
+}
+
+function handlePlacementModeClick(r, c) {
+    // --- Toda tu lógica de validación inicial se mantiene intacta ---
+    //console.log(`[Placement] Clic en (${r},${c}). Modo activo: ${placementMode.active}, Unidad: ${placementMode.unitData?.name || 'Ninguna'}`);
+    
+    if (!placementMode.active || !placementMode.unitData) {
+        console.error("[Placement] Error: Modo de colocación inactivo o sin datos de unidad. Se cancelará.");
+        placementMode.active = false;
+        if (UIManager) UIManager.clearHighlights();
+        return;
+    }
+
+    const unitToPlace = placementMode.unitData;
+    const hexData = board[r]?.[c];
+
+    if (!hexData) {
+        logMessage("Hexágono inválido.");
+        return; 
+    }
+
+    if (getUnitOnHex(r, c)) {
+        logMessage(`Ya hay una unidad en este hexágono.`);
+        return;
+    }
+
+    // --- Lógica de validación `canPlace`
+    let canPlace = false;
+    let reasonForNoPlacement = "";
+
+    if (gameState.currentPhase === "play") {
+        if (!placementMode.recruitHex) {
+            reasonForNoPlacement = "Error: Falta el origen del reclutamiento.";
+            canPlace = false;
+        } else {
+            const dist = hexDistance(placementMode.recruitHex.r, placementMode.recruitHex.c, r, c);
+            if (dist > 1) {
+                reasonForNoPlacement = "Las unidades reclutadas deben colocarse en la base o adyacente.";
+                canPlace = false;
+            } else {
+                canPlace = true;
+            }
+        }
+    } else if (gameState.currentPhase === "deployment") {
+        if (hexData.terrain === 'water') {
+            reasonForNoPlacement = "No se pueden desplegar unidades de tierra en el agua.";
+            canPlace = false;
+        } else {
+            canPlace = true;
+        }
+    }
+
+    // --- A partir de aquí, integramos la lógica de red---
+
+    if (canPlace) {
+        // --- GESTIÓN DE RECURSOS (SE HACE SIEMPRE, ANTES DE LA ACCIÓN) ---
+        const totalCost = unitToPlace.cost || {};
+        const playerRes = gameState.playerResources[gameState.currentPlayer];
+        
+        for (const res in totalCost) {
+            if ((playerRes[res] || 0) < totalCost[res]) {
+                logMessage(`No tienes suficientes ${res} para desplegar esta unidad.`, 'error');
+                return;
+            }
+        }
+        for (const res in totalCost) {
+            playerRes[res] -= totalCost[res];
+        }
+        if (UIManager) UIManager.updatePlayerAndPhaseInfo();
+
+        // --- LÓGICA DE RED / LOCAL ---
+        if (isNetworkGame()) {
+            const actionPayload = { 
+                playerId: gameState.currentPlayer, 
+                unitData: JSON.parse(JSON.stringify(unitToPlace, (key, value) => key === 'element' ? undefined : value)),
+                r, c 
+            };
+
+            if (NetworkManager.esAnfitrion) {
+                // ANFITRIÓN: Ejecuta la acción localmente y luego notifica a los demás.
+                placeFinalizedDivision(actionPayload.unitData, r, c);
+                NetworkManager.broadcastFullState();
+            } else {
+                // CLIENTE: Solo envía la petición al anfitrión.
+                NetworkManager.enviarDatos({ type: 'actionRequest', action: { type: 'placeUnit', payload: actionPayload } });
+            }
+        } else {
+            // JUEGO LOCAL: Simplemente ejecuta la acción.
+            placeFinalizedDivision(unitToPlace, r, c);
+        }
+
+        // --- LIMPIEZA DE UI (SE HACE SIEMPRE) ---
+        placementMode.active = false;
+        placementMode.unitData = null;
+        placementMode.recruitHex = null;
+        if (UIManager) UIManager.clearHighlights();
+        logMessage(`Unidad ${unitToPlace.name} desplegada / petición enviada.`);
+
+    } else {
+        // --- LÓGICA DE FALLO (Tu código original, con reembolso) ---
+        logMessage(`No se puede colocar: ${reasonForNoPlacement}`);
+        if (unitToPlace.cost) {
+            for (const resourceType in unitToPlace.cost) {
+                gameState.playerResources[gameState.currentPlayer][resourceType] += unitToPlace.cost[resourceType];
+            }
+            if (UIManager) UIManager.updatePlayerAndPhaseInfo();
+            logMessage("Colocación cancelada. Recursos reembolsados.");
+        }
+        placementMode.active = false;
+        placementMode.unitData = null;
+        placementMode.recruitHex = null;
+        if (UIManager) UIManager.clearHighlights();
+    }
+}
+
+//==============================================================
+//== NUEVAS FUNCIONES DE RED ==
+//==============================================================
+
+// --- FUNCIONES DE ACC IÓN CON LÓGICA DE RED CORREGIDA ---
+function handlePlacementModeClick(r, c) {
+    console.log(`[Placement] Clic en (${r},${c}). Modo activo: ${placementMode.active}, Unidad: ${placementMode.unitData?.name || 'Ninguna'}`);
+    
+    if (!placementMode.active || !placementMode.unitData) {
+        console.error("[Placement] Error: Modo de colocación inactivo o sin datos de unidad. Se cancelará.");
+        placementMode.active = false;
+        if (UIManager) UIManager.clearHighlights();
+        return;
+    }
+
+    const unitToPlace = placementMode.unitData;
+    const hexData = board[r]?.[c];
+
+    if (!hexData) {
+        logMessage("Hexágono inválido.");
+        return; // Mantenemos el modo activo para que el jugador pueda intentarlo en otro sitio.
+    }
+
+    if (getUnitOnHex(r, c)) {
+        logMessage(`Ya hay una unidad en este hexágono.`);
+        return; // Mantenemos el modo activo.
+    }
+
+    let canPlace = false;
+    if (hexData && !getUnitOnHex(r,c)) {
+        if (gameState.currentPhase === "deployment" && hexData.terrain !== 'water') {
+            canPlace = true;
+        } else if (gameState.currentPhase === "play" && placementMode.recruitHex) {
+            if (hexDistance(placementMode.recruitHex.r, placementMode.recruitHex.c, r, c) <= 1) {
+                canPlace = true;
+            }
+        }
+    }
+    // Lógica para despliegue al INICIO de la partida
+    else if (gameState.currentPhase === "deployment") {
+        // En despliegue, también ignoramos las reglas de movimiento. Se asume que la zona de despliegue es válida.
+        // Aquí puedes añadir tu lógica de zona de despliegue si la tienes.
+        // Por ahora, permitimos colocar en cualquier casilla que no sea agua.
+        if (hexData.terrain === 'water') {
+            reasonForNoPlacement = "No se pueden desplegar unidades de tierra en el agua.";
+            canPlace = false;
+        } else {
+            canPlace = true;
+        }
+    }
+
+    if (canPlace) {
+        const action = {
+            type: 'placeUnit',
+            payload: { 
+                playerId: gameState.currentPlayer, // Siempre el jugador actual
+                unitData: JSON.parse(JSON.stringify(unitToPlace, (key, value) => key === 'element' ? undefined : value)),
+                r, c 
+            }
+        };
+
+        if (isNetworkGame()) {
+            if (NetworkManager.esAnfitrion) {
+                processActionRequest(action);
+                NetworkManager.broadcastFullState();
+            } else {
+                NetworkManager.enviarDatos({ type: 'actionRequest', action });
+            }
+        } else {
+            // Juego Local
+            placeFinalizedDivision(unitToPlace, r, c);
+        }
+
+        placementMode.active = false;
+        placementMode.unitData = null;
+        if (UIManager) UIManager.clearHighlights();
+        logMessage(`Unidad ${unitToPlace.name} colocada / petición enviada.`);
+
+    } else {
+        logMessage("No se puede colocar la unidad aquí.");
+        // Lógica de reembolso de recursos (se mantiene)
+        if (unitToPlace.cost) {
+            for (const resourceType in unitToPlace.cost) {
+                gameState.playerResources[gameState.currentPlayer][resourceType] += unitToPlace.cost[resourceType];
+            }
+            if (UIManager) UIManager.updatePlayerAndPhaseInfo();
+            logMessage("Colocación cancelada. Recursos reembolsados.");
+        }
+        placementMode.active = false;
+        placementMode.unitData = null;
+        if (UIManager) UIManager.clearHighlights();
+    }
+}
+
+async function RequestMoveUnit(unit, toR, toC) {
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `move_${unit.id}_${toR}_${toC}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { type: 'moveUnit', actionId: actionId, payload: { playerId: unit.player, unitId: unit.id, toR, toC }};
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            // El Anfitrión se procesa a sí mismo, sin enviar por la red
+            await processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+        return;
+    }// En un juego local, la "petición" es simplemente ejecutar el movimiento directamente.
+    await _executeMoveUnit(unit, toR, toC);
+}
+
+async function RequestAttackUnit(attacker, defender) {
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `attack_${attacker.id}_${defender.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { type: 'attackUnit', actionId: actionId, payload: { playerId: attacker.player, attackerId: attacker.id, defenderId: defender.id }};
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            await processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+        return;
+    }
+    // Juego local
+    await attackUnit(attacker, defender);
+}
+
+// Variable global para prevenir fusiones simultáneas
+let _isMergingUnits = false;
+
+async function RequestMergeUnits(mergingUnit, targetUnit) {
+    // PROTECCIÓN: Prevenir múltiples llamadas simultáneas
+    if (_isMergingUnits) {
+        console.warn("[RequestMergeUnits] Ya hay una fusión en proceso, ignorando solicitud duplicada.");
+        logMessage("Ya hay una fusión en proceso.", "warning");
+        return;
+    }
+    
+    _isMergingUnits = true; // Bloquear nuevas solicitudes
+    
+    try {
+        // CORRECCIÓN: La confirmación debe ocurrir ANTES de enviar la acción al anfitrión
+        // para que el modal aparezca en el cliente que inicia la fusión
+        const confirmation = window.confirm(`¿Fusionar "${mergingUnit.name}" con "${targetUnit.name}"?`);
+        if (!confirmation) {
+            logMessage("Fusión cancelada.", "info");
+            return;
+        }
+
+        // Generar ID único para esta acción (para deduplicación en el anfitrión)
+        const actionId = `merge_${mergingUnit.id}_${targetUnit.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        console.log(`%c[RequestMergeUnits] ID único generado: ${actionId}`, 'background: #FFD700; color: #000; font-weight: bold;');
+        const action = { type: 'mergeUnits', actionId: actionId, payload: { playerId: mergingUnit.player, mergingUnitId: mergingUnit.id, targetUnitId: targetUnit.id }};
+        if (isNetworkGame()) {
+            if (NetworkManager.esAnfitrion) {
+                await processActionRequest(action);
+                NetworkManager.broadcastFullState();
+            } else {
+                NetworkManager.enviarDatos({ type: 'actionRequest', action });
+            }
+            return;
+        }
+        // CORRECCIÓN: Usar await también para juegos locales
+        await mergeUnits(mergingUnit, targetUnit);
+    } finally {
+        // Desbloquear después de un breve delay para evitar clics accidentales
+        setTimeout(() => { _isMergingUnits = false; }, 500);
+    }
+}
+
+function RequestSplitUnit(originalUnit, targetR, targetC) {
+    const actionData = gameState.preparingAction;
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `split_${originalUnit.id}_${targetR}_${targetC}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { 
+        type: 'splitUnit',
+        actionId: actionId, 
+        payload: { 
+            playerId: originalUnit.player, 
+            originalUnitId: originalUnit.id, 
+            newUnitRegiments: actionData.newUnitRegiments, 
+            remainingOriginalRegiments: actionData.remainingOriginalRegiments, 
+            targetR, targetC 
+        }
+    };
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+        cancelPreparingAction();
+        return;
+    }
+    splitUnit(originalUnit, targetR, targetC);
+}
+/**
+ * [Punto de Entrada] Inicia la acción de Saqueo.
+ * Decide si ejecutar localmente o enviar una petición a la red.
+ */
+function RequestPillageAction() {
+    if (!selectedUnit) return;
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `pillage_${selectedUnit.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { type: 'pillageHex', actionId: actionId, payload: { playerId: selectedUnit.player, unitId: selectedUnit.id }};
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+        return;
+    }
+    
+    // Para juegos locales, llama directamente a la función de ejecución.
+    _executePillageAction(selectedUnit);
+}
+
+function RequestDisbandUnit(unitToDisband) {
+    if (!unitToDisband) return;
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `disband_${unitToDisband.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { type: 'disbandUnit', actionId: actionId, payload: { playerId: unitToDisband.player, unitId: unitToDisband.id }};
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+    } else {
+        const goldToRefund = Math.floor((unitToDisband.cost?.oro || 0) * 0.5);
+        if (gameState.playerResources[unitToDisband.player]) {
+            gameState.playerResources[unitToDisband.player].oro += goldToRefund;
+        }
+        handleUnitDestroyed(unitToDisband, null);
+    }
+    // La limpieza de la UI se hace en ambos casos, después de la acción de red o local
+    if (domElements.unitDetailModal) domElements.unitDetailModal.style.display = 'none';
+    if (UIManager) UIManager.hideContextualPanel();
+}
+
+function RequestUndoLastUnitMove(unit) {
+    if (!unit) return;
+    // Generar ID único para esta acción (para deduplicación en el anfitrión)
+    const actionId = `undo_${unit.id}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const action = { type: 'undoMove', actionId: actionId, payload: { playerId: unit.player, unitId: unit.id }};
+    if (isNetworkGame()) {
+        if (NetworkManager.esAnfitrion) {
+            processActionRequest(action);
+            NetworkManager.broadcastFullState();
+        } else {
+            NetworkManager.enviarDatos({ type: 'actionRequest', action });
+        }
+    } else {
+        // Juego local: ejecutar directamente
+        undoLastUnitMove(unit);
+    }
+}
+
+/**
+ * [Función Pura de Ejecución] Mueve la unidad en el estado del juego y la UI.
+ * No contiene lógica de red. Asume que la acción ya ha sido validada y confirmada.
+ * @private
+ */
+async function _executeMoveUnit(unit, toR, toC, isMergeMove = false) {
+    console.log(`[MOVIMIENTO] Ejecutando _executeMoveUnit para ${unit.name} a (${toR},${toC}). Es fusión: ${isMergeMove}`);
+    
+    // Validar si el hexágono de destino está ocupado y si NO es una fusión
+    const targetUnitOnHex = getUnitOnHex(toR, toC);
+    if (targetUnitOnHex && !isMergeMove) {
+        console.warn(`[MOVIMIENTO BLOQUEADO] Intento de mover ${unit.name} a una casilla ocupada por ${targetUnitOnHex.name} sin ser una fusión.`);
+        return;
+    }
+
+    const fromR = unit.r;
+    const fromC = unit.c;
+    const targetHexData = board[toR]?.[toC];
+    
+    // --- Lógica de `lastMove` y coste (sin cambios) ---
+    if (unit.player === gameState.myPlayerNumber || !isNetworkGame()) {
+        unit.lastMove = {
+            fromR: fromR, fromC: fromC,
+            initialCurrentMovement: unit.currentMovement,
+            initialHasMoved: unit.hasMoved,
+            initialHasAttacked: unit.hasAttacked,
+            movedToHexOriginalOwner: targetHexData ? targetHexData.owner : null
+        };
+    }
+    const costOfThisMove = getMovementCost(unit, fromR, fromC, toR, toC, isMergeMove);
+    if (costOfThisMove === Infinity && !isMergeMove) return;
+
+    // --- Lógica de movimiento y captura (sin cambios) ---
+    if (board[fromR]?.[fromC]) { board[fromR][fromC].unit = null; renderSingleHexVisuals(fromR, fromC); }
+    unit.r = toR; unit.c = toC;
+    unit.currentMovement -= costOfThisMove; unit.hasMoved = true;
+    if (targetHexData) {
+        targetHexData.unit = unit;
+        if (targetHexData.owner === null) {
+            const movingPlayer = unit.player;
+            targetHexData.owner = movingPlayer;
+            targetHexData.estabilidad = 1;
+            targetHexData.nacionalidad = { 1: 0, 2: 0 };
+            targetHexData.nacionalidad[movingPlayer] = 1;
+            const city = gameState.cities.find(ci => ci.r === toR && ci.c === toC);
+            if (city?.owner === null) { city.owner = movingPlayer; }
+            renderSingleHexVisuals(toR, toC);
+        }
+    } else {
+        console.error(`[_executeMoveUnit] Error crítico: Hex destino (${toR},${toC}) no encontrado.`);
+        unit.r = fromR; unit.c = fromC; unit.currentMovement += costOfThisMove; unit.hasMoved = false;
+        if (board[fromR]?.[fromC]) board[fromR][fromC].unit = unit;
+        renderSingleHexVisuals(fromR, fromC);
+        return;
+    }
+
+    // <<==LLAMADA AL CRONISTA ==>>
+    if (typeof Chronicle !== 'undefined') {
+        Chronicle.logEvent('move', { unit: unit, toR: toR, toC: toC });
+    }
+
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('unit_moved');
+    }
+
+    // --- Lógica de consumir bonificación (sin cambios) ---
+    if (targetHexData.destroyedUnitBonus && targetHexData.destroyedUnitBonus.claimedBy === null) {
+        const bonus = targetHexData.destroyedUnitBonus;
+        unit.experience = (unit.experience || 0) + bonus.experience;
+        unit.morale = Math.min(unit.maxMorale || 125, (unit.morale || 50) + bonus.morale);
+        logMessage(`¡${unit.name} reclama los restos, ganando ${bonus.experience} XP y ${bonus.morale} de moral!`);
+        delete targetHexData.destroyedUnitBonus;
+        renderSingleHexVisuals(toR, toC);
+        checkAndApplyLevelUp(unit);
+        if(selectedUnit?.id === unit.id) { UIManager.showUnitContextualInfo(unit, true); }
+    }
+    
+    // --- Lógica de actualización de UI (sin cambios) ---
+    logMessage(`${unit.name} movida. Mov. restante: ${unit.currentMovement}.`);
+    positionUnitElement(unit);
+    if (UIManager) { UIManager.updateSelectedUnitInfoPanel(); UIManager.updatePlayerAndPhaseInfo(); }
+    if (gameState.currentPhase === 'play' && typeof checkVictory === "function") { if (checkVictory()) return; }
+    if (selectedUnit?.id === unit.id) { UIManager.highlightPossibleActions(unit); }
+}
+
+function handleConfirmBuildStructure(actionData) {
+    // Si la función se llama SIN datos (desde el botón del modal)
+    // usa las variables globales como antes.
+    console.log(`%c[handleConfirmBuildStructure] INICIO.`, "background: #222; color: #bada55");
+    
+    // Este booleano es crucial para distinguir entre una acción del jugador (a través del modal) y una acción de la IA.
+    const isPlayerAction = !actionData;
+    
+    const r = isPlayerAction ? parseInt(domElements.buildStructureModal.dataset.r) : actionData.r;
+    const c = isPlayerAction ? parseInt(domElements.buildStructureModal.dataset.c) : actionData.c;
+    const structureType = isPlayerAction ? selectedStructureToBuild : actionData.structureType;
+
+    const playerId = isPlayerAction ? gameState.currentPlayer : actionData.playerId;
+
+    console.log(` -> Datos: Jugador=${playerId}, Estructura=${structureType}, Coords=(${r},${c})`);
+    
+    if (!structureType || typeof r === 'undefined') {
+        console.error(`   -> DIAGNÓSTICO: FALLO. Datos de construcción inválidos. Saliendo.`);
+        return;
+    }
+
+    const data = STRUCTURE_TYPES[structureType];
+    const playerRes = gameState.playerResources[playerId];
+    console.log(`   -> Recursos del Jugador ${playerId} ANTES:`, JSON.parse(JSON.stringify(playerRes)));
+
+    // Validación de costes
+    console.log("   -> Fase: Validando costes...");
+    for (const res in data.cost) {
+        if ((playerRes[res] || 0) < data.cost[res]) {
+            console.error(`      -> DIAGNÓSTICO: FALLO. No hay suficientes ${res}. Necesita ${data.cost[res]}, tiene ${playerRes[res] || 0}.`);
+            if (isPlayerAction) logMessage(`Error: No tienes suficientes ${res}.`);
+            return; // Detiene si no se puede pagar
+        }
+    }
+
+    // Deducir costes
+    for (const res in data.cost) {
+        playerRes[res] -= data.cost[res];
+    }
+     // Consumir la unidad de colono
+    if (data.cost['Colono']) {
+        const unitOnHex = getUnitOnHex(r,c);
+        if (unitOnHex && unitOnHex.isSettler) {
+            handleUnitDestroyed(unitOnHex, null);
+            logMessage("¡El Colono ha establecido una nueva Aldea!");
+        }
+    }
+
+    // Construir la estructura lógicamente
+    board[r][c].structure = structureType;
+    logMessage(`${data.name} construido en (${r},${c}) para el Jugador ${playerId}.`);
+
+    // El redibujado
+    console.log("   -> Fase: Solicitando redibujado visual de la casilla...");
+    if (typeof renderSingleHexVisuals === 'function') {
+    renderSingleHexVisuals(r, c);
+        console.log(`      -> OK: Llamada a renderSingleHexVisuals(${r}, ${c}) completada.`);
+    } else {
+        console.error("   -> DIAGNÓSTICO: FALLO. La función renderSingleHexVisuals no existe.");
+    }
+    
+    // Actualización de UI
+    console.log("   -> Fase: Actualizando UI global...");
+    if (isPlayerAction) {
+        // Si la acción fue de un jugador humano, actualizamos y cerramos sus ventanas.
+        if(UIManager) {
+            UIManager.updatePlayerAndPhaseInfo();
+            UIManager.hideContextualPanel();
+        }
+        if(domElements.buildStructureModal) {
+            domElements.buildStructureModal.style.display = 'none';
+        }
+    } else {
+        // Si la acción fue de la IA, solo actualizamos la información de recursos.
+        if (UIManager && UIManager.updatePlayerAndPhaseInfo) {
+            UIManager.updatePlayerAndPhaseInfo();
+        }
+    }
+}
+
+/**
+ * Reorganiza los regimientos dentro de una división para consolidar las bajas.
+ * Agrupa los regimientos por tipo, suma su salud y crea nuevos regimientos a partir del total.
+ * Esta acción consume el turno de la unidad.
+ * @param {object} unit - La división que se va a reorganizar.
+ */
+function consolidateRegiments(unit) {
+    if (!unit || unit.hasMoved || unit.hasAttacked) {
+        logMessage("La unidad no puede reorganizarse porque ya ha actuado.", "warning");
+        return;
+    }
+
+    if (!confirm(`¿Reorganizar la división "${unit.name}"? Esto consolidará los regimientos dañados y consumirá el turno de la unidad.`)) {
+        logMessage("Reorganización cancelada.");
+        return;
+    }
+
+    const newRegimentsList = [];
+    const regimentsByType = new Map();
+
+    // 1. Agrupar todos los regimientos por su tipo
+    for (const reg of unit.regiments) {
+        if (!regimentsByType.has(reg.type)) {
+            regimentsByType.set(reg.type, []);
+        }
+        regimentsByType.get(reg.type).push(reg);
+    }
+
+    let consolidationHappened = false;
+
+    // 2. Procesar cada grupo de regimientos
+    for (const [type, regGroup] of regimentsByType.entries()) {
+        const regData = REGIMENT_TYPES[type];
+        const maxHealthPerReg = regData.health;
+
+        // Si solo hay un regimiento de este tipo o ninguno está dañado, no hacemos nada.
+        if (regGroup.length <= 1 && regGroup[0].health === maxHealthPerReg) {
+            newRegimentsList.push(...regGroup);
+            continue;
+        }
+
+        // Calcular la salud total del grupo
+        const totalHealth = regGroup.reduce((sum, reg) => sum + reg.health, 0);
+
+        if (totalHealth > 0) {
+            consolidationHappened = true;
+            const newFullRegimentsCount = Math.floor(totalHealth / maxHealthPerReg);
+            const remainingHealth = totalHealth % maxHealthPerReg;
+
+            // Añadir los nuevos regimientos a plena salud
+            for (let i = 0; i < newFullRegimentsCount; i++) {
+                const newFullReg = JSON.parse(JSON.stringify(regData));
+                newFullReg.type = type;
+                newFullReg.health = maxHealthPerReg;
+                newFullReg.id = `r${Date.now()}${i}`;
+                newRegimentsList.push(newFullReg);
+            }
+
+            // Añadir el regimiento final con la salud sobrante
+            if (remainingHealth > 0) {
+                const newDamagedReg = JSON.parse(JSON.stringify(regData));
+                newDamagedReg.type = type;
+                newDamagedReg.health = remainingHealth;
+                newDamagedReg.id = `r${Date.now()}rem`;
+                newRegimentsList.push(newDamagedReg);
+            }
+        }
+    }
+
+    if (!consolidationHappened) {
+        logMessage("No hay regimientos que necesiten consolidación en esta división.");
+        return;
+    }
+
+    // 3. Actualizar la división con la nueva lista de regimientos
+    unit.regiments = newRegimentsList;
+    
+    // 4. Recalcular todos los stats y consumir el turno
+    recalculateUnitStats(unit);
+    unit.currentHealth = newRegimentsList.reduce((sum, reg) => sum + reg.health, 0);
+    unit.hasMoved = true;
+    unit.hasAttacked = true;
+
+    // 5. Feedback al jugador y actualización de la UI
+    if (gameState.isTutorialActive) {
+        TutorialManager.notifyActionCompleted('consolidation_completed');
+    }
+    Chronicle.logEvent('consolidate', { unit }); // (Opcional, si quieres añadirlo a la Crónica)
+    logMessage(`La división "${unit.name}" ha reorganizado sus fuerzas.`, "success");
+    UIManager.updateUnitStrengthDisplay(unit);
+    UIManager.showUnitContextualInfo(unit, true);
+    UIManager.clearHighlights();
+}
+
+/**
+ * Encuentra la ruta óptima desde un punto de inicio a un destino usando el algoritmo A*.
+ * Esta función es "inteligente": puede rodear obstáculos y considera el coste del terreno.
+ * @param {object} unit - La unidad que se mueve (real o "fantasma").
+ * @param {object} startCoords - Las coordenadas de inicio {r, c}.
+ * @param {object} targetCoords - Las coordenadas de destino {r, c}.
+ * @returns {Array|null} - Un array de coordenadas de la ruta, o null si no se encontró.
+ */
+function findPath_A_Star(unit, startCoords, targetCoords) {
+    if (!unit || !startCoords || !targetCoords) return null;
+
+    const hasJumpAbility = unit.regiments.some(reg => 
+        REGIMENT_TYPES[reg.type]?.abilities?.includes("Jump")
+    );
+
+    let openSet = [ { ...startCoords, g: 0, h: hexDistance(startCoords.r, startCoords.c, targetCoords.r, targetCoords.c), f: 0, path: [startCoords] } ];
+    openSet[0].f = openSet[0].h;
+    
+    let visited = new Set([`${startCoords.r},${startCoords.c}`]);
+
+    while (openSet.length > 0) {
+        // Encontrar el nodo en openSet con el menor fScore
+        openSet.sort((a, b) => a.f - b.f);
+        let current = openSet.shift();
+
+        if (current.r === targetCoords.r && current.c === targetCoords.c) {
+            return current.path; // RUTA ENCONTRADA
+        }
+
+        for (const neighbor of getHexNeighbors(current.r, current.c)) {
+            const key = `${neighbor.r},${neighbor.c}`;
+            if (visited.has(key)) continue;
+
+            const hex = board[neighbor.r]?.[neighbor.c];
+            if (!hex || TERRAIN_TYPES[hex.terrain].isImpassableForLand) continue;
+            
+            const unitOnNeighbor = hex.unit;
+            let canPassThrough = false;
+            
+            if (!unitOnNeighbor) { canPassThrough = true; } 
+            else if (unitOnNeighbor.player === unit.player && hasJumpAbility) { canPassThrough = true; }
+            
+            // Un movimiento NUNCA puede terminar en una casilla ocupada
+            if (neighbor.r === targetCoords.r && neighbor.c === targetCoords.c && unitOnNeighbor) {
+                canPassThrough = false;
+            }
+
+            if (canPassThrough) {
+                visited.add(key);
+                const moveCost = TERRAIN_TYPES[hex.terrain]?.movementCostMultiplier || 1;
+                const g = current.g + moveCost;
+                const h = hexDistance(neighbor.r, neighbor.c, targetCoords.r, targetCoords.c);
+                const f = g + h;
+                const newPath = [...current.path, neighbor];
+                openSet.push({ ...neighbor, g, h, f, path: newPath });
+            }
+        }
+    }
+    
+    return null; // RUTA NO ENCONTRADA
+}
+
+function cancelPreparingAction() {
+    gameState.preparingAction = null;
+    _unitBeingSplit = null; // Resetea la unidad que se estaba dividiendo
+    if (UIManager) {
+        UIManager.clearHighlights();
+    }
+}
+
+console.log("unit_Actions.js se ha cargado.");
+
